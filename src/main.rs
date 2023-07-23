@@ -4,39 +4,22 @@ mod dns_message;
 
 use std::net;
 
-const NAME_SERVER_ADDRESS: (&str, u16) = ("8.8.8.8", 53);
 const LOCAL_ADDRESS: (net::Ipv4Addr, u16) = (net::Ipv4Addr::UNSPECIFIED, 0);
+const NAME_SERVER_ADDRESS: (&str, u16) = ("8.8.8.8", 53);
 
 fn main() {
     let dns_message: dns_message::DnsMessage = dns_message::DnsMessage {
-        header: dns_message::DnsHeader {
-            id: 1978,
-            response: false,
-            operation_code: dns_message::OperationCode::StandardQuery,
-            authoritative_answer: false,
-            truncated: false,
-            recursion_desired: true,
-            recursion_available: false,
-            z: 0,
-            response_code: dns_message::ResponseCode::Success,
-            question_count: 1,
-            answer_count: 0,
-            authority_count: 0,
-            additional_count: 0
-        },
+        header: dns_message::DnsHeader::default(),
         questions: vec![
             dns_message::DnsQuestion {
                 name: String::from("wikipedia.org"),
-                question_type: dns_message::QuestionType::A,
-                question_class: dns_message::QuestionClass::IN
+                ..Default::default()
             },
         ],
-        answers: Vec::new(),
-        authorities: Vec::new(),
-        additional: Vec::new()
+        ..Default::default()
     };
 
-    let mut udp_packet = udp_packet::UdpPacket::new();
+    let mut udp_packet: udp_packet::UdpPacket = udp_packet::UdpPacket::new();
     dns_message.write_to_udp_packet(&mut udp_packet);
     
     let udp_socket = net::UdpSocket::bind(LOCAL_ADDRESS)

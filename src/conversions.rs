@@ -73,13 +73,14 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
     fn u16_to_bool_test() {
         let val_1 = 1;
         let val_0 = 0;
         assert_eq!(u16_to_bool(val_1), true);
         assert_eq!(u16_to_bool(val_0), false);
         // Testing panic! case of u16_to_bool
-        // let val_err = 673;
-        // u16_to_bool(val_err);
+        let val_err = 673;
+        u16_to_bool(val_err);
     }
 }
