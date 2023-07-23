@@ -34,8 +34,9 @@ fn main() {
     udp_socket.recv(&mut response_packet.buffer).expect("Failed to read message.");
 
     println!("{:#?}", dns_message::DnsHeader::read_from_udp_packet(&response_packet));
+}
 
-    /*
+fn generate_test_dataset() {
     let mut responses = fs::File::options()
     .write(true)
     .truncate(true)
@@ -82,5 +83,4 @@ fn main() {
         .expect("Could not write to logs.");
     })
     .collect();
-    */
 }
