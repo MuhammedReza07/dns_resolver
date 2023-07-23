@@ -64,6 +64,7 @@ impl UdpPacket {
 
 #[cfg(test)]
 mod tests {
+    use crate::dns_message;
     use crate::udp_packet::*;
     #[test]
     fn write_from_slice_test() {
@@ -151,12 +152,11 @@ mod tests {
 
     #[test]
     fn write_string_test() {
-        let string = "wikipedia.org";
-        let mut udp_packet = UdpPacket::new();
-        udp_packet.write_string(string);
+        let mut udp_packet: UdpPacket = UdpPacket::new();
+        udp_packet.write_string(dns_message::TEST_DOMAIN);
         assert_eq!(udp_packet, UdpPacket {
             buffer: [
-                9, 119, 105, 107, 105, 112, 101, 100, 105, 97, 3, 111, 114, 103, 0, 0, 
+                7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -189,7 +189,7 @@ mod tests {
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
             ],
-            position: 15
+            position: 13
         })
     }
 

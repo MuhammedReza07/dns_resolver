@@ -5,11 +5,15 @@ use crate::udp_packet;
 // Temporary solution: Making every field public.
 // TODO: Implement more robust error handling by using a custom error type.
 
-const DNS_HEADER_LENGTH_BYTES: usize = 12; // First offset where a NAME (String value) occurs in packets
+const DNS_HEADER_LENGTH_BYTES: usize = 12; // First offset where a NAME (String value) occurs in packets.
+const QUESTION_COUNT: u16 = 1; // The default QDCOUNT field of the DNS header.
+const RECURSION_DESIRED: bool = true; // The default RD field of the DNS header.
+pub const TEST_DOMAIN: &str = "example.com"; // the "example" domains are reserved for testing.
 
 // Represented by 4 bits
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub enum OperationCode {
+    #[default]
     StandardQuery, // QUERY, 0
     InverseQuery, // IQUERY, 1
     Status // STATUS, 2
@@ -35,8 +39,9 @@ impl OperationCode {
 }
 
 // Represented by 4 bits
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub enum ResponseCode {
+    #[default]
     Success, // 0, no error
     FormatError, // 1, DNS packet could not be interpreted due to malformed a query
     ServerFailure, // 2, DNS packet could not be interpreted due to internal name server error
@@ -70,8 +75,9 @@ impl ResponseCode {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default, PartialEq)]
 pub enum RecordType {
+    #[default]
     A
 }
 
@@ -83,8 +89,9 @@ impl RecordType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default, PartialEq)]
 pub enum RecordClass {
+    #[default]
     IN
 }
 
@@ -96,8 +103,9 @@ impl RecordClass {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default, PartialEq)]
 pub enum QuestionType {
+    #[default]
     A
 }
 
@@ -109,8 +117,9 @@ impl QuestionType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default, PartialEq)]
 pub enum QuestionClass {
+    #[default]
     IN
 }
 
@@ -141,6 +150,26 @@ pub struct DnsHeader {
     pub answer_count: u16, // 16 bits
     pub authority_count: u16, // 16 bits
     pub additional_count: u16 // 16 bits
+}
+
+impl Default for DnsHeader {
+    fn default() -> Self {
+        Self { 
+            id: Default::default(), 
+            response: Default::default(), 
+            operation_code: Default::default(), 
+            authoritative_answer: Default::default(), 
+            truncated: Default::default(), 
+            recursion_desired: RECURSION_DESIRED,
+            recursion_available: Default::default(), 
+            z: Default::default(), 
+            response_code: Default::default(), 
+            question_count: QUESTION_COUNT, 
+            answer_count: Default::default(), 
+            authority_count: Default::default(), 
+            additional_count: Default::default() 
+        }
+    }
 }
 
 impl DnsHeader {
@@ -198,11 +227,21 @@ impl DnsHeader {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct DnsQuestion {
     pub name: String, // Domain name queried
     pub question_type: QuestionType, // 16 bits, specifies query type
     pub question_class: QuestionClass // 16 bits, specifies the class of the query, such as IN for the internet
+}
+
+impl Default for DnsQuestion {
+    fn default() -> Self {
+        Self {
+            name: String::from(TEST_DOMAIN), 
+            question_type: Default::default(), 
+            question_class: Default::default() 
+        }
+    }
 }
 
 impl DnsQuestion {
@@ -219,7 +258,7 @@ impl DnsQuestion {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct DnsRecord {
     pub name: String, // Domain name to which the RR belongs
     pub record_type: RecordType, // 16 bits, specifies RR type and thus the contents of RDATA
@@ -246,13 +285,25 @@ impl DnsRecord {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct DnsMessage {
     pub header: DnsHeader, // 12 bytes, request and section metadata
     pub questions: Vec<DnsQuestion>, // Question section, contains the relevant queries
     pub answers: Vec<DnsRecord>, // Answer section, contains RR:s which answer the queries
     pub authorities: Vec<DnsRecord>, // Authority section, contains NS RR:s pointing to other name servers
     pub additional: Vec<DnsRecord> // Additional section, contains additional resources deemed relevant by the name server
+}
+
+impl Default for DnsMessage {
+    fn default() -> Self {
+        Self { 
+            header: Default::default(), 
+            questions: vec![DnsQuestion::default()], 
+            answers: Default::default(), 
+            authorities: Default::default(), 
+            additional: Default::default() 
+        }
+    }
 }
 
 impl DnsMessage {
@@ -275,59 +326,10 @@ impl DnsMessage {
 
 #[cfg(test)]
 mod tests {
-    /*
-    Sample DNS message (DnsMessage struct):
-    DnsMessage {
-       header: DnsHeader {
-           id: 16729,
-           response: false,
-           operation_code: OperationCode::StandardQuery,
-           authoritative_answer: false,
-            truncated: false,
-            recursion_desired: true,
-            recursion_available: false,
-            z: 0,
-            response_code: ResponseCode::Success,
-            question_count: 2,
-            answer_count: 0,
-            authority_count: 0,
-            additional_count: 0
-        },
-        questions: vec![
-            DnsQuestion {
-                name: String::from("google.com"),
-                question_type: QuestionType::A,
-                question_class: QuestionClass::IN
-            },
-            DnsQuestion {
-                name: String::from("wikipedia.org"),
-                question_type: QuestionType::A,
-                question_class: QuestionClass::IN
-            }
-        ],
-        answers: Vec::new(),
-        authorities: Vec::new(),
-        additional: Vec::new()
-    }
-    */
     use crate::dns_message::*;
     #[test]
     fn header_encoding_decoding_test() {
-        let header = DnsHeader {
-            id: 16729,
-            response: false,
-            operation_code: OperationCode::StandardQuery,
-            authoritative_answer: false,
-            truncated: false,
-            recursion_desired: true,
-            recursion_available: false,
-            z: 0,
-            response_code: ResponseCode::Success,
-            question_count: 2,
-            answer_count: 0,
-            authority_count: 0,
-            additional_count: 0
-        };
+        let header = DnsHeader::default();
         let mut udp_packet = udp_packet::UdpPacket::new();
         header.write_to_udp_packet(&mut udp_packet);
         let decoded_header = DnsHeader::read_from_udp_packet(&udp_packet);
@@ -336,17 +338,13 @@ mod tests {
 
     #[test]
     fn dns_question_write_test() {
-        let question = DnsQuestion {
-            name: String::from("google.com"),
-            question_type: QuestionType::A,
-            question_class: QuestionClass::IN
-        };
+        let question = DnsQuestion::default();
         let mut udp_packet = udp_packet::UdpPacket::new();
         question.write_to_udp_packet(&mut udp_packet);
         assert_eq!(udp_packet, udp_packet::UdpPacket {
             buffer: [
-                6, 103, 111, 111, 103, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1,
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0,
+                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -378,7 +376,56 @@ mod tests {
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
             ],
-            position: 16
+            position: 17
         })
+    }
+
+    #[test]
+    fn default_trait_test() {
+        // Enumerations
+        assert_eq!(OperationCode::default(), OperationCode::StandardQuery);
+        assert_eq!(ResponseCode::default(), ResponseCode::Success);
+        assert_eq!(RecordType::default(), RecordType::A);
+        assert_eq!(QuestionType::default(), QuestionType::A);
+        assert_eq!(RecordClass::default(), RecordClass::IN);
+        assert_eq!(QuestionClass::default(), QuestionClass::IN);
+
+        // Structs
+        assert_eq!(
+            DnsHeader::default(), 
+            DnsHeader {
+                id: 0,
+                response: false,
+                operation_code: OperationCode::StandardQuery,
+                authoritative_answer: false,
+                truncated: false,
+                recursion_desired: RECURSION_DESIRED,
+                recursion_available: false,
+                z: 0,
+                response_code: ResponseCode::Success,
+                question_count: QUESTION_COUNT,
+                answer_count: 0,
+                authority_count: 0,
+                additional_count: 0
+            }
+        );
+        assert_eq!(
+            DnsQuestion::default(),
+            DnsQuestion {
+                name: String::from(TEST_DOMAIN),
+                question_type: QuestionType::A,
+                question_class: QuestionClass::IN
+            }
+        );
+        assert_eq!(
+            DnsMessage::default(),
+            DnsMessage {
+                header: DnsHeader::default(),
+                questions: vec![DnsQuestion::default()],
+                answers: Vec::new(),
+                authorities: Vec::new(),
+                additional: Vec::new()
+            }
+        )
     }
 }
