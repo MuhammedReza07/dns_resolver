@@ -78,8 +78,16 @@ fn generate_test_dataset() {
         udp_socket.recv(&mut response_packet.buffer).expect("Failed to read message.");
 
         responses.write_all(&response_packet.buffer).expect("Failed to write to output file.");
-        println!("Query: {}, status: {:?}, domain: {}.", index, dns_message::DnsHeader::read_from_udp_packet(&response_packet).response_code, name);
-        logs.write(&format!("Query: {}, status: {:?}, domain: {}.\n", index, dns_message::DnsHeader::read_from_udp_packet(&response_packet).response_code, name).as_bytes())
+        println!(
+            "Query: {}, status: {:?}, domain: {}.", 
+            index, 
+            dns_message::DnsHeader::read_from_udp_packet(&response_packet).response_code, name
+        );
+        logs.write(
+            &format!("Query: {}, status: {:?}, domain: {}.\n", 
+            index, dns_message::DnsHeader::read_from_udp_packet(&response_packet).response_code, name)
+            .as_bytes()
+        )
         .expect("Could not write to logs.");
     })
     .collect();
