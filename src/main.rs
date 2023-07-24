@@ -1,5 +1,16 @@
+/// Module containing conversion functionality for primitives not provided
+/// by the standard library, such as the conversion u32 -> u8.
 mod conversions;
+
+/// Module containing utilities for handling a DNS-compatible UDP packet, i.e.
+/// a UDP packet of size 512 bytes. The module's functionality is specifically
+/// adapted to the DNS protocol and is therefore unsuitable for use in non-DNS
+/// applications.
 mod udp_packet;
+
+/// Module containing utilities for working with DNS queries, such as specialised
+/// structs (e.g. DnsHeader, DnsQuestion, etc.), and the functionality needed to both
+/// read and write them from/to a UDP packet.
 mod dns_message;
 
 use std::fs;
@@ -14,7 +25,7 @@ fn main() {
         header: dns_message::DnsHeader::default(),
         questions: vec![
             dns_message::DnsQuestion {
-                name: String::from("wikipedia.org"),
+                name: String::from("torrent.com"),
                 ..Default::default()
             },
         ],
@@ -79,13 +90,16 @@ fn generate_test_dataset() {
 
         responses.write_all(&response_packet.buffer).expect("Failed to write to output file.");
         println!(
-            "Query: {}, status: {:?}, domain: {}.", 
+            "Query: {}, status: {:?}, truncated: {}, domain: {}.", 
             index, 
-            dns_message::DnsHeader::read_from_udp_packet(&response_packet).response_code, name
+            dns_message::DnsHeader::read_from_udp_packet(&response_packet).response_code,
+            dns_message::DnsHeader::read_from_udp_packet(&response_packet).truncated, name
         );
         logs.write(
-            &format!("Query: {}, status: {:?}, domain: {}.\n", 
-            index, dns_message::DnsHeader::read_from_udp_packet(&response_packet).response_code, name)
+            &format!("Query: {}, status: {:?}, truncated: {}, domain: {}.\n", 
+            index, dns_message::DnsHeader::read_from_udp_packet(&response_packet).response_code, 
+            dns_message::DnsHeader::read_from_udp_packet(&response_packet).truncated, name
+        )
             .as_bytes()
         )
         .expect("Could not write to logs.");
