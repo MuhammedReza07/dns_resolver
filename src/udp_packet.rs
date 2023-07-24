@@ -1,3 +1,5 @@
+use std::net;
+
 pub const UDP_PACKET_MAX_SIZE_BYTES: usize = 512;
 const NAME_MAX_LENGTH_BYTES: usize = 255;
 const LABEL_MAX_LENGTH_BYTES: usize = 63;
@@ -15,6 +17,14 @@ impl UdpPacket {
             buffer: [0; UDP_PACKET_MAX_SIZE_BYTES],
             position: 0
         }
+    }
+
+    pub fn send(&self, udp_socket: &net::UdpSocket) {
+        udp_socket.send(&self.buffer).expect("Failed to send packet.");
+    }
+
+    pub fn recv(&mut self, udp_socket: &net::UdpSocket) {
+        udp_socket.recv(&mut self.buffer).expect("Failed to receive packet.");
     }
 
     pub fn get_position(&self) -> usize {

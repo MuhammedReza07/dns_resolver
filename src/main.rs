@@ -37,13 +37,13 @@ fn main() {
     
     let udp_socket = net::UdpSocket::bind(LOCAL_ADDRESS)
     .expect("Failed to bind a UdpSocket to address.");
-
     udp_socket.connect(NAME_SERVER_ADDRESS).expect("Failed to connect to name server.");
-    udp_socket.send(&udp_packet.buffer).expect("Failed to send message");
 
-    let mut response_packet = udp_packet::UdpPacket::new();
-    udp_socket.recv(&mut response_packet.buffer).expect("Failed to read message.");
+    udp_packet.send(&udp_socket);
 
+    let mut response_packet: udp_packet::UdpPacket = udp_packet::UdpPacket::new();
+    response_packet.recv(&udp_socket);
+    
     println!("{:#?}", dns_message::DnsHeader::read_from_udp_packet(&response_packet));
 }
 
