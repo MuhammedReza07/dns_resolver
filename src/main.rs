@@ -2,16 +2,19 @@
 /// by the standard library, such as the conversion u32 -> u8.
 mod conversions;
 
+/// Module containing utilities for working with DNS queries, such as specialised
+/// structs (e.g. DnsHeader, DnsQuestion, etc.), and the functionality needed to both
+/// read and write them from/to a UDP packet.
+mod dns_message;
+
+/// Module providing custom error types for other modules.
+mod error;
+
 /// Module containing utilities for handling a DNS-compatible UDP packet, i.e.
 /// a UDP packet of size 512 bytes. The module's functionality is specifically
 /// adapted to the DNS protocol and is therefore unsuitable for use in non-DNS
 /// applications.
 mod udp_packet;
-
-/// Module containing utilities for working with DNS queries, such as specialised
-/// structs (e.g. DnsHeader, DnsQuestion, etc.), and the functionality needed to both
-/// read and write them from/to a UDP packet.
-mod dns_message;
 
 use std::fs;
 use std::io::Write;
@@ -40,10 +43,9 @@ fn main() {
     udp_socket.connect(NAME_SERVER_ADDRESS).expect("Failed to connect to name server.");
 
     udp_packet.send(&udp_socket);
-
     let mut response_packet: udp_packet::UdpPacket = udp_packet::UdpPacket::new();
     response_packet.recv(&udp_socket);
-    
+
     println!("{:#?}", dns_message::DnsHeader::read_from_udp_packet(&response_packet));
 }
 
