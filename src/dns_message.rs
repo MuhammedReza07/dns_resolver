@@ -18,24 +18,26 @@ pub enum OperationCode {
     #[default]
     StandardQuery, // QUERY, 0
     InverseQuery, // IQUERY, 1
-    Status // STATUS, 2
+    Status, // STATUS, 2
+    Unknown(u16) // Any
 }
 
 impl OperationCode {
     fn from_u16(num: u16) -> Self {
         match num {
-            0 => OperationCode::StandardQuery,
-            1 => OperationCode::InverseQuery,
-            2 => OperationCode::Status,
-            _ => panic!("Integers (u16) 3-15 are reserved for future use.")
+            0 => Self::StandardQuery,
+            1 => Self::InverseQuery,
+            2 => Self::Status,
+            _ => Self::Unknown(num)
         }
     }
 
     fn to_u16(&self) -> u16 {
         match self {
-            OperationCode::StandardQuery => 0,
-            OperationCode::InverseQuery => 1,
-            OperationCode::Status => 2,
+            Self::StandardQuery => 0,
+            Self::InverseQuery => 1,
+            Self::Status => 2,
+            Self::Unknown(num) => *num
         }
     }
 }
@@ -50,29 +52,31 @@ pub enum ResponseCode {
     NameError, // 3, Domain name does not exist, only from authoritative name servers
     NotImplemented, // 4, the requested functionality has not been implemented by the server
     Refused, // 5, the name server refuses to respond for some reason
+    Unknown(u16) // Any
 }
 
 impl ResponseCode {
     fn from_u16(num: u16) -> Self {
         match num {
-            0 => ResponseCode::Success,
-            1 => ResponseCode::FormatError,
-            2 => ResponseCode::ServerFailure,
-            3 => ResponseCode::NameError,
-            4 => ResponseCode::NotImplemented,
-            5 => ResponseCode::Refused,
-            _ => panic!("Integers (u16) 6-15 are reserved for future use.")
+            0 => Self::Success,
+            1 => Self::FormatError,
+            2 => Self::ServerFailure,
+            3 => Self::NameError,
+            4 => Self::NotImplemented,
+            5 => Self::Refused,
+            _ => Self::Unknown(num)
         }
     }
 
     fn to_u16(&self) -> u16 {
         match self {
-            ResponseCode::Success => 0,
-            ResponseCode::FormatError => 1,
-            ResponseCode::ServerFailure => 2,
-            ResponseCode::NameError => 3,
-            ResponseCode::NotImplemented => 4,
-            ResponseCode::Refused => 5
+            Self::Success => 0,
+            Self::FormatError => 1,
+            Self::ServerFailure => 2,
+            Self::NameError => 3,
+            Self::NotImplemented => 4,
+            Self::Refused => 5,
+            Self::Unknown(num) => *num
         }
     }
 }
@@ -80,13 +84,22 @@ impl ResponseCode {
 #[derive(Debug, Default, PartialEq)]
 pub enum RecordType {
     #[default]
-    A
+    A,
+    Unknown(u16)
 }
 
 impl RecordType {
     fn to_u16(&self) -> u16 {
         match self {
-            RecordType::A => 1
+            Self::A => 1,
+            Self::Unknown(num) => *num
+        }
+    }
+
+    fn from_u16(num: u16) -> Self {
+        match num {
+            1 => Self::A,
+            _ => Self::Unknown(num)
         }
     }
 }
@@ -94,13 +107,22 @@ impl RecordType {
 #[derive(Debug, Default, PartialEq)]
 pub enum RecordClass {
     #[default]
-    IN
+    IN,
+    Unknown(u16)
 }
 
 impl RecordClass {
     fn to_u16(&self) -> u16 {
         match self {
-            RecordClass::IN => 1
+            Self::IN => 1,
+            Self::Unknown(num) => *num
+        }
+    }
+
+    fn from_u16(num: u16) -> Self {
+        match num {
+            1 => Self::IN,
+            _ => Self::Unknown(num)
         }
     }
 }
@@ -108,13 +130,22 @@ impl RecordClass {
 #[derive(Debug, Default, PartialEq)]
 pub enum QuestionType {
     #[default]
-    A
+    A,
+    Unknown(u16)
 }
 
 impl QuestionType {
     fn to_u16(&self) -> u16 {
         match self {
-            QuestionType::A => 1
+            Self::A => 1,
+            Self::Unknown(num) => *num
+        }
+    }
+
+    fn from_u16(num: u16) -> Self {
+        match num {
+            1 => Self::A,
+            _ => Self::Unknown(num)
         }
     }
 }
@@ -122,13 +153,22 @@ impl QuestionType {
 #[derive(Debug, Default, PartialEq)]
 pub enum QuestionClass {
     #[default]
-    IN
+    IN,
+    Unknown(u16)
 }
 
 impl QuestionClass {
     fn to_u16(&self) -> u16 {
         match self {
-            QuestionClass::IN => 1
+            Self::IN => 1,
+            Self::Unknown(num) => *num
+        }
+    }
+
+    fn from_u16(num: u16) -> Self {
+        match num {
+            1 => Self::IN,
+            _ => Self::Unknown(num)
         }
     }
 }
@@ -176,7 +216,7 @@ impl Default for DnsHeader {
 
 impl DnsHeader {
     fn write_to_udp_packet(&self, udp_packet: &mut udp_packet::UdpPacket) {
-        if udp_packet.get_position() >= DNS_HEADER_LENGTH_BYTES {
+        if udp_packet.position >= DNS_HEADER_LENGTH_BYTES {
             panic!("DNS header can only be written within bytes 0-11 (DNS_HEADER_LENGTH_BYTES - 1) of DnsMessage.buffer.")
         }
         let flag_bytes = conversions::u16_to_u8(self.response_code.to_u16()
@@ -199,7 +239,7 @@ impl DnsHeader {
     }
 
     // TODO: Maybe avoid indexing by using slices instead, requires parameter change in conversions::u8_to_u16.
-    pub fn read_from_udp_packet(udp_packet: &udp_packet::UdpPacket) -> Self {
+    pub fn read_from_udp_packet(udp_packet: &mut udp_packet::UdpPacket) -> Self {
         let header_bytes = udp_packet.read_to_slice(0, DNS_HEADER_LENGTH_BYTES);
         let flag_bytes = conversions::u8_to_u16([header_bytes[2], header_bytes[3]]);
         // Flag bitfield format:
@@ -252,7 +292,7 @@ impl DnsQuestion {
     // improve error handling.
     fn write_to_udp_packet(&self, udp_packet: &mut udp_packet::UdpPacket) {
         udp_packet.write_domain_name(&self.name);
-        if udp_packet.get_position() + 4 >= udp_packet::UDP_PACKET_MAX_SIZE_BYTES {
+        if udp_packet.position + 4 >= udp_packet::UDP_PACKET_MAX_SIZE_BYTES {
             panic!("Cannot write out of packet bounds.");
         }
         udp_packet.write_from_slice(&conversions::u16_to_u8(self.question_type.to_u16())); 
@@ -276,7 +316,7 @@ impl DnsRecord {
     // improve error handling.
     fn write_to_udp_packet(&self, udp_packet: &mut udp_packet::UdpPacket) {
         udp_packet.write_domain_name(&self.name);
-        if udp_packet.get_position() + 10 + self.data.len() >= udp_packet::UDP_PACKET_MAX_SIZE_BYTES {
+        if udp_packet.position + 10 + self.data.len() >= udp_packet::UDP_PACKET_MAX_SIZE_BYTES {
             panic!("Cannot write out of packet bounds.");
         }
         udp_packet.write_from_slice(&conversions::u16_to_u8(self.record_type.to_u16()));
@@ -334,7 +374,7 @@ mod tests {
         let header = DnsHeader::default();
         let mut udp_packet = udp_packet::UdpPacket::new();
         header.write_to_udp_packet(&mut udp_packet);
-        let decoded_header = DnsHeader::read_from_udp_packet(&udp_packet);
+        let decoded_header = DnsHeader::read_from_udp_packet(&mut udp_packet);
         assert_eq!(header, decoded_header);
     }
 

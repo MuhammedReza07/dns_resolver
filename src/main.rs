@@ -21,12 +21,12 @@ use std::str::FromStr;
 const LOCAL_ADDRESS: (net::Ipv4Addr, u16) = (net::Ipv4Addr::UNSPECIFIED, 0);
 const NAME_SERVER_ADDRESS: (&str, u16) = ("8.8.8.8", 53);
 
-fn main() {
+fn main() -> Result<(), udp_packet::UdpPacketIoError> {
     let dns_message: dns_message::DnsMessage = dns_message::DnsMessage {
         header: dns_message::DnsHeader::default(),
         questions: vec![
             dns_message::DnsQuestion {
-                name: udp_packet::DomainName::from_str("torrent.com").expect("Failed to construct DomainName."),
+                name: udp_packet::DomainName::from_str("google.com")?,
                 ..Default::default()
             },
         ],
@@ -35,16 +35,18 @@ fn main() {
 
     let mut udp_packet: udp_packet::UdpPacket = udp_packet::UdpPacket::new();
     dns_message.write_to_udp_packet(&mut udp_packet);
+    println!("{}", udp_packet.position);
     
     let udp_socket = net::UdpSocket::bind(LOCAL_ADDRESS)
     .expect("Failed to bind a UdpSocket to address.");
     udp_socket.connect(NAME_SERVER_ADDRESS).expect("Failed to connect to name server.");
 
-    udp_packet.send(&udp_socket);
+    udp_packet.send(&udp_socket)?;
     let mut response_packet: udp_packet::UdpPacket = udp_packet::UdpPacket::new();
-    response_packet.recv(&udp_socket);
+    response_packet.recv(&udp_socket)?;
 
-    println!("{:#?}", dns_message::DnsHeader::read_from_udp_packet(&response_packet));
+    println!("{:#?}", dns_message::DnsHeader::read_from_udp_packet(&mut response_packet));
+    Ok(())
 }
 
 fn generate_test_dataset() {
@@ -92,13 +94,13 @@ fn generate_test_dataset() {
         println!(
             "Query: {}, status: {:?}, truncated: {}, domain: {}.", 
             index, 
-            dns_message::DnsHeader::read_from_udp_packet(&response_packet).response_code,
-            dns_message::DnsHeader::read_from_udp_packet(&response_packet).truncated, name
+            dns_message::DnsHeader::read_from_udp_packet(&mut response_packet).response_code,
+            dns_message::DnsHeader::read_from_udp_packet(&mut response_packet).truncated, name
         );
         logs.write(
             &format!("Query: {}, status: {:?}, truncated: {}, domain: {}.\n", 
-            index, dns_message::DnsHeader::read_from_udp_packet(&response_packet).response_code, 
-            dns_message::DnsHeader::read_from_udp_packet(&response_packet).truncated, name
+            index, dns_message::DnsHeader::read_from_udp_packet(&mut response_packet).response_code, 
+            dns_message::DnsHeader::read_from_udp_packet(&mut response_packet).truncated, name
         )
             .as_bytes()
         )

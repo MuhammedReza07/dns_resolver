@@ -14,53 +14,70 @@ const LABEL_MAX_LENGTH_BYTES: usize = 63;
 // = 1 + label_1.label_2 ... .label_n.len() + 1
 // = [the dot-separated name as a string].len() + 2
 
-/// Contains the LabelTooLong and NameTooLong variants used in MalformedDomainName.
 #[derive(Debug)]
-enum Malformation {
+pub enum Malformation {
     LabelTooLong,
-    NameTooLong
+    NameTooLong,
+    InvalidAscii
 }
 
-/// Error handling type for the construction of DomainName:s.
-/// 
-/// The parameters indicate the following:
-/// 
-/// domain_name: the domain name that caused the error,
-/// 
-/// reason: the malformation at hand, either 
-/// 
-/// - LabelTooLong (a label longer than 63 bytes) or 
-/// - NameTooLong (a domain name longer than 255 bytes),
-/// 
-/// cause: the malformed label or name.
+/// Error handling type for UDP packet operations.
 #[derive(Debug)]
-pub struct MalformedDomainName {
-    domain_name: String,
-    reason: Malformation,
-    cause: String
+pub enum UdpPacketIoError  {
+    /// The domain name does not conform to the standard constraints.
+    MalformedDomainName {
+        domain_name: String, // The malformed domain name.
+        description: String, // An error message.
+        source: Malformation // The malformation
+    },
+
+    /// An error occurred while performing networking operations.
+    NetworkIo {
+        description: String, // An error message.
+        source: std::io::Error // The underlying low level error.
+    }
 }
+
+impl std::fmt::Display for UdpPacketIoError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UdpPacketIoError::MalformedDomainName { 
+                domain_name, 
+                description, 
+                source 
+            } => write!(f, "an error occurred while processing {}, source: {:?}, description: {}", domain_name, source, description),
+            UdpPacketIoError::NetworkIo { 
+                description, 
+                source 
+            } => write!(f, "an error occurred while performing network operations, description: {}, source: {:?}", description, source)
+        }
+    }
+}
+
+impl std::error::Error for UdpPacketIoError {}
 
 #[derive(Debug, PartialEq)]
 pub struct DomainName(Vec<u8>);
 
+// TODO: Check for the fact that all characters in the domain name are valid ASCII.
 impl FromStr for DomainName {
-    type Err = MalformedDomainName;
+    type Err = UdpPacketIoError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.len() + 2 > NAME_MAX_LENGTH_BYTES {
-            return Err(MalformedDomainName {
+            return Err(UdpPacketIoError::MalformedDomainName {
                 domain_name: s.to_string(),
-                reason: Malformation::NameTooLong,
-                cause: s.to_string()
+                description: String::from("domain name length exceeds 255 bytes"),
+                source: Malformation::NameTooLong
             });
         }
         let mut domain_name = Vec::<Vec<u8>>::new();
         for label in s.split(".").collect::<Vec<&str>>() {
             if label.len() > LABEL_MAX_LENGTH_BYTES {
-                return Err(MalformedDomainName {
+                return Err(UdpPacketIoError::MalformedDomainName {
                     domain_name: s.to_string(), 
-                    reason: Malformation::LabelTooLong, 
-                    cause: label.to_string() 
+                    description: format!("the length of label '{}' exceeds 63 bytes", label), 
+                    source: Malformation::LabelTooLong
                 });
             }
             domain_name.push([[label.len() as u8].as_slice(), label.as_bytes()].concat())
@@ -86,16 +103,24 @@ impl UdpPacket {
         }
     }
 
-    pub fn send(&self, udp_socket: &net::UdpSocket) {
-        udp_socket.send(&self.buffer).expect("Failed to send packet.");
+    pub fn send(&self, udp_socket: &net::UdpSocket) -> Result<usize, UdpPacketIoError> {
+        match udp_socket.send(&self.buffer) {
+            Ok(num_bytes_read) => Ok(num_bytes_read),
+            Err(error) => Err(UdpPacketIoError::NetworkIo { 
+                description: String::from("failed to send a packet"), 
+                source: error
+            })
+        }
     }
 
-    pub fn recv(&mut self, udp_socket: &net::UdpSocket) {
-        udp_socket.recv(&mut self.buffer).expect("Failed to receive packet.");
-    }
-
-    pub fn get_position(&self) -> usize {
-        self.position
+    pub fn recv(&mut self, udp_socket: &net::UdpSocket) -> Result<usize, UdpPacketIoError> {
+        match udp_socket.recv(&mut self.buffer) {
+            Ok(num_bytes_read) => Ok(num_bytes_read),
+            Err(error) => Err(UdpPacketIoError::NetworkIo { 
+                description: String::from("failed to receive a packet"), 
+                source: error
+            })
+        }
     }
 
     pub fn write_from_slice(&mut self, slice: &[u8]) -> () {
@@ -122,6 +147,10 @@ impl UdpPacket {
     // of other methods.
     pub fn write_domain_name(&mut self, domain_name: &DomainName) {
         self.write_from_slice(&domain_name.0);
+    }
+
+    pub fn read_domain_name(&self, start: usize) -> DomainName {
+        todo!()
     }
 }
 
