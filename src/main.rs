@@ -7,9 +7,6 @@ mod conversions;
 /// read and write them from/to a UDP packet.
 mod dns_message;
 
-/// Module providing custom error types for other modules.
-mod error;
-
 /// Module containing utilities for handling a DNS-compatible UDP packet, i.e.
 /// a UDP packet of size 512 bytes. The module's functionality is specifically
 /// adapted to the DNS protocol and is therefore unsuitable for use in non-DNS
@@ -19,6 +16,7 @@ mod udp_packet;
 use std::fs;
 use std::io::Write;
 use std::net;
+use std::str::FromStr;
 
 const LOCAL_ADDRESS: (net::Ipv4Addr, u16) = (net::Ipv4Addr::UNSPECIFIED, 0);
 const NAME_SERVER_ADDRESS: (&str, u16) = ("8.8.8.8", 53);
@@ -28,7 +26,7 @@ fn main() {
         header: dns_message::DnsHeader::default(),
         questions: vec![
             dns_message::DnsQuestion {
-                name: String::from("torrent.com"),
+                name: udp_packet::DomainName::from_str("torrent.com").expect("Failed to construct DomainName."),
                 ..Default::default()
             },
         ],
@@ -76,7 +74,7 @@ fn generate_test_dataset() {
             header: dns_message::DnsHeader::default(),
             questions: vec![
                 dns_message::DnsQuestion {
-                    name: String::from(name),
+                    name: udp_packet::DomainName::from_str(name).expect("Failed to construct DomainName."),
                     ..Default::default()
                 },
             ],

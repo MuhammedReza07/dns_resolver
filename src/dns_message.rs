@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crate::conversions;
 use crate::udp_packet;
 
@@ -229,7 +231,7 @@ impl DnsHeader {
 
 #[derive(Debug, PartialEq)]
 pub struct DnsQuestion {
-    pub name: String, // Domain name queried
+    pub name: udp_packet::DomainName, // Domain name queried
     pub question_type: QuestionType, // 16 bits, specifies query type
     pub question_class: QuestionClass // 16 bits, specifies the class of the query, such as IN for the internet
 }
@@ -237,7 +239,7 @@ pub struct DnsQuestion {
 impl Default for DnsQuestion {
     fn default() -> Self {
         Self {
-            name: String::from(TEST_DOMAIN), 
+            name: udp_packet::DomainName::from_str(TEST_DOMAIN).expect("Failed to construct DomainName."), 
             question_type: Default::default(), 
             question_class: Default::default() 
         }
@@ -249,7 +251,7 @@ impl DnsQuestion {
     // Proposed solution: extract the conversion of the NAME from String to bytes into a separate function and
     // improve error handling.
     fn write_to_udp_packet(&self, udp_packet: &mut udp_packet::UdpPacket) {
-        udp_packet.write_string(&self.name);
+        udp_packet.write_domain_name(&self.name);
         if udp_packet.get_position() + 4 >= udp_packet::UDP_PACKET_MAX_SIZE_BYTES {
             panic!("Cannot write out of packet bounds.");
         }
@@ -260,7 +262,7 @@ impl DnsQuestion {
 
 #[derive(Debug, PartialEq)]
 pub struct DnsRecord {
-    pub name: String, // Domain name to which the RR belongs
+    pub name: udp_packet::DomainName, // Domain name to which the RR belongs
     pub record_type: RecordType, // 16 bits, specifies RR type and thus the contents of RDATA
     pub record_class: RecordClass, // 16 bits, specifies the RR's class and thus the class of the contents of RDATA
     pub ttl: u32, // 32 bits, Specifies how long (in seconds) the RR can be cached
@@ -273,7 +275,7 @@ impl DnsRecord {
     // Proposed solution: extract the conversion of the NAME from String to bytes into a separate function and
     // improve error handling.
     fn write_to_udp_packet(&self, udp_packet: &mut udp_packet::UdpPacket) {
-        udp_packet.write_string(&self.name);
+        udp_packet.write_domain_name(&self.name);
         if udp_packet.get_position() + 10 + self.data.len() >= udp_packet::UDP_PACKET_MAX_SIZE_BYTES {
             panic!("Cannot write out of packet bounds.");
         }
@@ -412,7 +414,7 @@ mod tests {
         assert_eq!(
             DnsQuestion::default(),
             DnsQuestion {
-                name: String::from(TEST_DOMAIN),
+                name: udp_packet::DomainName::from_str(TEST_DOMAIN).expect("Failed to construct DomainName."),
                 question_type: QuestionType::A,
                 question_class: QuestionClass::IN
             }

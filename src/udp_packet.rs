@@ -1,10 +1,77 @@
 use std::net;
+use std::str::FromStr;
 
 pub const UDP_PACKET_MAX_SIZE_BYTES: usize = 512;
 const NAME_MAX_LENGTH_BYTES: usize = 255;
 const LABEL_MAX_LENGTH_BYTES: usize = 63;
 
+// The length of a domain name is given by length = [the dot-separated name as a string].len() + 2
+// This is clear from the following path of reasoning:
+// Consider the domain name label_1.label_2 ... .label_n.
+// It is encoded as [label_1.len()]label_1[label_2.len()]label_2 ... [label_n.len()]label_n\0.
+// If the lengths in bytes are considered, the length is given by length =
+// [label_1.len()].len() + [label_1[label_2.len()]label_2 ... [label_n.len()]label_n].len() + \0.len()
+// = 1 + label_1.label_2 ... .label_n.len() + 1
+// = [the dot-separated name as a string].len() + 2
+
+/// Contains the LabelTooLong and NameTooLong variants used in MalformedDomainName.
+#[derive(Debug)]
+enum Malformation {
+    LabelTooLong,
+    NameTooLong
+}
+
+/// Error handling type for the construction of DomainName:s.
+/// 
+/// The parameters indicate the following:
+/// 
+/// domain_name: the domain name that caused the error,
+/// 
+/// reason: the malformation at hand, either 
+/// 
+/// - LabelTooLong (a label longer than 63 bytes) or 
+/// - NameTooLong (a domain name longer than 255 bytes),
+/// 
+/// cause: the malformed label or name.
+#[derive(Debug)]
+pub struct MalformedDomainName {
+    domain_name: String,
+    reason: Malformation,
+    cause: String
+}
+
+#[derive(Debug, PartialEq)]
+pub struct DomainName(Vec<u8>);
+
+impl FromStr for DomainName {
+    type Err = MalformedDomainName;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.len() + 2 > NAME_MAX_LENGTH_BYTES {
+            return Err(MalformedDomainName {
+                domain_name: s.to_string(),
+                reason: Malformation::NameTooLong,
+                cause: s.to_string()
+            });
+        }
+        let mut domain_name = Vec::<Vec<u8>>::new();
+        for label in s.split(".").collect::<Vec<&str>>() {
+            if label.len() > LABEL_MAX_LENGTH_BYTES {
+                return Err(MalformedDomainName {
+                    domain_name: s.to_string(), 
+                    reason: Malformation::LabelTooLong, 
+                    cause: label.to_string() 
+                });
+            }
+            domain_name.push([[label.len() as u8].as_slice(), label.as_bytes()].concat())
+        }
+        domain_name.push(vec![0]); // Adding the zero byte, \0.
+        Ok(DomainName(domain_name.concat()))
+    }
+}
+
 // TODO: Make all struct fields private.
+// TODO: Implement equivalents to send_to and recv_from in std::net for UdpPacket.
 #[derive(Debug, PartialEq)]
 pub struct UdpPacket {
     pub buffer: [u8; UDP_PACKET_MAX_SIZE_BYTES],
@@ -53,22 +120,8 @@ impl UdpPacket {
     // While this TODO's resolution is necessary, the compression-free implementation suffices for the purpose of
     // generating shorter queries. As such, it is useful for the generation of name-server responses for the testing
     // of other methods.
-    pub fn write_string(&mut self, string: &str) {
-        let mut labels = string
-        .split(".")
-        .map(|label| {
-            if label.len() > LABEL_MAX_LENGTH_BYTES {
-                panic!("Label length cannot exceed 63 bytes.");
-            }
-            [[label.len() as u8].as_slice(), label.as_bytes()].concat()
-        })
-        .collect::<Vec<Vec<u8>>>()
-        .concat();
-        if labels.len() > NAME_MAX_LENGTH_BYTES {
-            panic!("Name length cannot exceed 255 bytes.");
-        }
-        labels.push(0);
-        self.write_from_slice(&labels);
+    pub fn write_domain_name(&mut self, domain_name: &DomainName) {
+        self.write_from_slice(&domain_name.0);
     }
 }
 
@@ -163,7 +216,8 @@ mod tests {
     #[test]
     fn write_string_test() {
         let mut udp_packet: UdpPacket = UdpPacket::new();
-        udp_packet.write_string(dns_message::TEST_DOMAIN);
+        udp_packet.write_domain_name(&DomainName::from_str(dns_message::TEST_DOMAIN)
+        .expect("Failed to construct DomainName."));
         assert_eq!(udp_packet, UdpPacket {
             buffer: [
                 7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 0, 0,
