@@ -6,6 +6,16 @@ pub fn u32_to_u8(num: u32) -> [u8; 4] {
     [seg_1, seg_2, seg_3, seg_4]
 }
 
+pub fn u8_slice_to_u32(nums: &[u8]) -> u32 {
+    if nums.len() != 4 {
+        panic!("Must have exactly 4 numbers to convert.")
+    }
+    ((nums[0] as u32) << 24)
+    | ((nums[1] as u32) << 16)
+    | ((nums[2] as u32) << 8)
+    | (nums[3] as u32)
+}
+
 pub fn u16_to_u8(num: u16) -> [u8; 2] {
     let seg_1 = ((num & 0xff00) >> 8) as u8;
     let seg_2 = (num & 0xff) as u8;
@@ -42,6 +52,16 @@ mod tests {
         assert_eq!(u32_to_u8(num_1), [0b11110000; 4]);
         assert_eq!(u32_to_u8(num_2), [0b10101010; 4]);
         assert_eq!(u32_to_u8(num_3), [0b11101100, 0b10000000, 0b11101100, 0b10000000]);
+    }
+
+    #[test]
+    fn u8_to_u32_test() {
+        let nums_1 = [0b11110000; 4];
+        let nums_2 = [0b10101010; 4];
+        let nums_3 = [0b11101100, 0b10000000, 0b11101100, 0b10000000];
+        assert_eq!(u8_slice_to_u32(&nums_1), 0b11110000111100001111000011110000);
+        assert_eq!(u8_slice_to_u32(&nums_2), 0b10101010101010101010101010101010);
+        assert_eq!(u8_slice_to_u32(&nums_3), 0b11101100100000001110110010000000);
     }
 
     #[test]

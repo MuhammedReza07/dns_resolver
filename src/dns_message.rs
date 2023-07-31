@@ -1,6 +1,5 @@
-use std::str::FromStr;
-
 use crate::conversions;
+use std::str::FromStr;
 use crate::udp_packet;
 
 // TODO: Facilitate construction of complex structs (e.g. DnsHeader, DnsMessage) by implementing the builder pattern.
@@ -239,8 +238,8 @@ impl DnsHeader {
     }
 
     // TODO: Maybe avoid indexing by using slices instead, requires parameter change in conversions::u8_to_u16.
-    pub fn read_from_udp_packet(udp_packet: &mut udp_packet::UdpPacket) -> Self {
-        let header_bytes = udp_packet.read_to_slice(0, DNS_HEADER_LENGTH_BYTES);
+    fn read_from_udp_packet(udp_packet: &mut udp_packet::UdpPacket) -> Self {
+        let header_bytes = udp_packet.read_to_slice_incr(0, DNS_HEADER_LENGTH_BYTES);
         let flag_bytes = conversions::u8_to_u16([header_bytes[2], header_bytes[3]]);
         // Flag bitfield format:
         // 0b 1000 0000 0000 0000 (0x8000) response
@@ -251,7 +250,7 @@ impl DnsHeader {
         // 0b 0000 0000 1000 0000 (0x0080) recursion_available
         // 0b 0000 0000 0111 0000 (0x0070) z
         // 0b 0000 0000 0000 1111 (0x000f) response_code
-        DnsHeader {
+        Self {
             id: conversions::u8_to_u16([header_bytes[0], header_bytes[1]]), 
             response: conversions::u16_to_bool((flag_bytes & 0x8000) >> 15), 
             operation_code: OperationCode::from_u16((flag_bytes & 0x7800) >> 11), 
@@ -298,6 +297,14 @@ impl DnsQuestion {
         udp_packet.write_from_slice(&conversions::u16_to_u8(self.question_type.to_u16())); 
         udp_packet.write_from_slice(&conversions::u16_to_u8(self.question_class.to_u16()));
     }
+
+    fn read_from_udp_packet(udp_packet: &mut udp_packet::UdpPacket) -> Self {
+        Self {
+            name: udp_packet.read_domain_name(udp_packet.position),
+            question_type: QuestionType::from_u16(udp_packet.read_u16()),
+            question_class: QuestionClass::from_u16(udp_packet.read_u16())
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -324,6 +331,22 @@ impl DnsRecord {
         udp_packet.write_from_slice(&conversions::u32_to_u8(self.ttl));
         udp_packet.write_from_slice(&conversions::u16_to_u8(self.length));
         udp_packet.write_from_slice(&self.data);
+    }
+
+    fn read_from_udp_packet(udp_packet: &mut udp_packet::UdpPacket) -> Self {
+        let name = udp_packet.read_domain_name(udp_packet.position);
+        let record_type = RecordType::from_u16(udp_packet.read_u16());
+        let record_class = RecordClass::from_u16(udp_packet.read_u16());
+        let ttl = udp_packet.read_u32();
+        let length =  udp_packet.read_u16();
+        Self {
+            name,
+            record_type,
+            record_class,
+            ttl,
+            length,
+            data: Vec::from(udp_packet.read_to_slice_incr(udp_packet.position, length as usize))
+        }
     }
 }
 
@@ -362,6 +385,33 @@ impl DnsMessage {
         }
         for index in 0..self.header.additional_count {
             self.additional[index as usize].write_to_udp_packet(udp_packet);
+        }
+    }
+
+    pub fn read_from_udp_packet(udp_packet: &mut udp_packet::UdpPacket) -> Self {
+        let header = DnsHeader::read_from_udp_packet(udp_packet);
+        let mut questions: Vec<DnsQuestion> = Vec::new();
+        let mut answers: Vec<DnsRecord> = Vec::new();
+        let mut authorities: Vec<DnsRecord> = Vec::new();
+        let mut additional: Vec<DnsRecord> = Vec::new();
+        for _ in 0..header.question_count {
+            questions.push(DnsQuestion::read_from_udp_packet(udp_packet))
+        };
+        for _ in 0..header.answer_count {
+            answers.push(DnsRecord::read_from_udp_packet(udp_packet))
+        };
+        for _ in 0..header.authority_count {
+            authorities.push(DnsRecord::read_from_udp_packet(udp_packet))
+        };
+        for _ in 0..header.additional_count {
+            additional.push(DnsRecord::read_from_udp_packet(udp_packet))
+        };
+        Self {
+            header,
+            questions,
+            answers,
+            authorities,
+            additional
         }
     }
 }
