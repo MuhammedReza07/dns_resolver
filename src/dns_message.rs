@@ -2,23 +2,19 @@ use crate::conversions;
 use std::str::FromStr;
 use crate::udp_packet;
 
-// TODO: Facilitate construction of complex structs (e.g. DnsHeader, DnsMessage) by implementing the builder pattern.
-// Temporary solution: Making every field public.
-// TODO: Implement more robust error handling by using a custom error type.
-
-const DNS_HEADER_LENGTH_BYTES: usize = 12; // First offset where a NAME (String value) occurs in packets.
-const QUESTION_COUNT: u16 = 1; // The default QDCOUNT field of the DNS header.
-const RECURSION_DESIRED: bool = true; // The default RD field of the DNS header.
-pub const TEST_DOMAIN: &str = "example.com"; // the "example" domains are reserved for testing.
+const DNS_HEADER_LENGTH_BYTES: usize = 12;      // First offset where a NAME (String value) occurs in packets.
+const QUESTION_COUNT: u16 = 1;                  // The default QDCOUNT field of the DNS header.
+const RECURSION_DESIRED: bool = true;           // The default RD field of the DNS header.
+pub const TEST_DOMAIN: &str = "example.com";    // the "example" domains are reserved for testing.
 
 // Represented by 4 bits
 #[derive(Debug, Default, PartialEq)]
 pub enum OperationCode {
     #[default]
-    StandardQuery, // QUERY, 0
-    InverseQuery, // IQUERY, 1
-    Status, // STATUS, 2
-    Unknown(u16) // Any
+    StandardQuery,  // QUERY, 0
+    InverseQuery,   // IQUERY, 1
+    Status,         // STATUS, 2
+    Unknown(u16)    // Any
 }
 
 impl OperationCode {
@@ -45,13 +41,13 @@ impl OperationCode {
 #[derive(Debug, Default, PartialEq)]
 pub enum ResponseCode {
     #[default]
-    Success, // 0, no error
-    FormatError, // 1, DNS packet could not be interpreted due to malformed a query
-    ServerFailure, // 2, DNS packet could not be interpreted due to internal name server error
-    NameError, // 3, Domain name does not exist, only from authoritative name servers
-    NotImplemented, // 4, the requested functionality has not been implemented by the server
-    Refused, // 5, the name server refuses to respond for some reason
-    Unknown(u16) // Any
+    Success,            // 0, no error
+    FormatError,        // 1, DNS packet could not be interpreted due to malformed a query
+    ServerFailure,      // 2, DNS packet could not be interpreted due to internal name server error
+    NameError,          // 3, Domain name does not exist, only from authoritative name servers
+    NotImplemented,     // 4, the requested functionality has not been implemented by the server
+    Refused,            // 5, the name server refuses to respond for some reason
+    Unknown(u16)        // Any, unimplemented
 }
 
 impl ResponseCode {
@@ -177,20 +173,20 @@ pub struct DnsHeader {
     pub id: u16, // 16 bits, packet identifier
 
     // 16 bits, header flags
-    pub response: bool, // 1 bit, set (1) on responses, unset (0) on queries
-    pub operation_code: OperationCode, // 4 bits, indicates the kind of query in the packet
-    pub authoritative_answer: bool, // 1 bit, set if the responding name server is a domain authority
-    pub truncated: bool, // 1 bit, set if the message's content has been truncated due to being too long
-    pub recursion_desired: bool, // 1 bit, set if the resolver desires recursive service
-    pub recursion_available: bool, // 1 bit, set if the name server is willing to provide recursive service
-    pub z: u16, // 3 bits, reserved and must be unset
-    pub response_code: ResponseCode, // 4 bits, indicates the response status of the name server
+    pub response: bool,                     // 1 bit, set (1) on responses, unset (0) on queries
+    pub operation_code: OperationCode,      // 4 bits, indicates the kind of query in the packet
+    pub authoritative_answer: bool,         // 1 bit, set if the responding name server is a domain authority
+    pub truncated: bool,                    // 1 bit, set if the message's content has been truncated due to being too long
+    pub recursion_desired: bool,            // 1 bit, set if the resolver desires recursive service
+    pub recursion_available: bool,          // 1 bit, set if the name server is willing to provide recursive service
+    pub z: u16,                             // 3 bits, reserved and must be unset
+    pub response_code: ResponseCode,        // 4 bits, indicates the response status of the name server
 
     // Metadata about the other sections of the DNS message
-    pub question_count: u16, // 16 bits
-    pub answer_count: u16, // 16 bits
-    pub authority_count: u16, // 16 bits
-    pub additional_count: u16 // 16 bits
+    pub question_count: u16,                // 16 bits
+    pub answer_count: u16,                  // 16 bits
+    pub authority_count: u16,               // 16 bits
+    pub additional_count: u16               // 16 bits
 }
 
 impl Default for DnsHeader {
@@ -227,17 +223,16 @@ impl DnsHeader {
         | (self.operation_code.to_u16() << 11)
         | (conversions::bool_to_u16(self.response) << 15));
         let slice = [
-            conversions::u16_to_u8(self.id), // id field
-            flag_bytes, // header flags, 
-            conversions::u16_to_u8(self.question_count), // question count field
-            conversions::u16_to_u8(self.answer_count), // answer count field
-            conversions::u16_to_u8(self.authority_count), // authority count field
-            conversions::u16_to_u8(self.additional_count) // additional count field
+            conversions::u16_to_u8(self.id),                // id field
+            flag_bytes,                                         // header flags, 
+            conversions::u16_to_u8(self.question_count),    // question count field
+            conversions::u16_to_u8(self.answer_count),      // answer count field
+            conversions::u16_to_u8(self.authority_count),   // authority count field
+            conversions::u16_to_u8(self.additional_count)   // additional count field
         ].concat();
         udp_packet.write_from_slice(&slice);
     }
 
-    // TODO: Maybe avoid indexing by using slices instead, requires parameter change in conversions::u8_to_u16.
     fn read_from_udp_packet(udp_packet: &mut udp_packet::UdpPacket) -> Self {
         let header_bytes = udp_packet.read_to_slice_incr(0, DNS_HEADER_LENGTH_BYTES);
         let flag_bytes = conversions::u8_to_u16([header_bytes[2], header_bytes[3]]);
@@ -270,9 +265,9 @@ impl DnsHeader {
 
 #[derive(Debug, PartialEq)]
 pub struct DnsQuestion {
-    pub name: udp_packet::DomainName, // Domain name queried
-    pub question_type: QuestionType, // 16 bits, specifies query type
-    pub question_class: QuestionClass // 16 bits, specifies the class of the query, such as IN for the internet
+    pub name: udp_packet::DomainName,   // Domain name queried
+    pub question_type: QuestionType,    // 16 bits, specifies query type
+    pub question_class: QuestionClass   // 16 bits, specifies the class of the query, such as IN for the internet
 }
 
 impl Default for DnsQuestion {
@@ -286,9 +281,6 @@ impl Default for DnsQuestion {
 }
 
 impl DnsQuestion {
-    // TODO: Do complete bound checking before writing the string.
-    // Proposed solution: extract the conversion of the NAME from String to bytes into a separate function and
-    // improve error handling.
     fn write_to_udp_packet(&self, udp_packet: &mut udp_packet::UdpPacket) {
         udp_packet.write_domain_name(&self.name);
         if udp_packet.position + 4 >= udp_packet::UDP_PACKET_MAX_SIZE_BYTES {
@@ -309,18 +301,15 @@ impl DnsQuestion {
 
 #[derive(Debug, PartialEq)]
 pub struct DnsRecord {
-    pub name: udp_packet::DomainName, // Domain name to which the RR belongs
-    pub record_type: RecordType, // 16 bits, specifies RR type and thus the contents of RDATA
-    pub record_class: RecordClass, // 16 bits, specifies the RR's class and thus the class of the contents of RDATA
-    pub ttl: u32, // 32 bits, Specifies how long (in seconds) the RR can be cached
-    pub length: u16, // 16 bits, Specifies the length (in bytes) of the contents of RDATA
-    pub data: Vec<u8> // The RDATA field, contains the name server's response data
+    pub name: udp_packet::DomainName,   // Domain name to which the RR belongs
+    pub record_type: RecordType,        // 16 bits, specifies RR type and thus the contents of RDATA
+    pub record_class: RecordClass,      // 16 bits, specifies the RR's class and thus the class of the contents of RDATA
+    pub ttl: u32,                       // 32 bits, Specifies how long (in seconds) the RR can be cached
+    pub length: u16,                    // 16 bits, Specifies the length (in bytes) of the contents of RDATA
+    pub data: Vec<u8>                   // The RDATA field, contains the name server's response data
 }
 
 impl DnsRecord {
-    // TODO: Do complete bound checking before writing the string.
-    // Proposed solution: extract the conversion of the NAME from String to bytes into a separate function and
-    // improve error handling.
     fn write_to_udp_packet(&self, udp_packet: &mut udp_packet::UdpPacket) {
         udp_packet.write_domain_name(&self.name);
         if udp_packet.position + 10 + self.data.len() >= udp_packet::UDP_PACKET_MAX_SIZE_BYTES {
@@ -352,11 +341,11 @@ impl DnsRecord {
 
 #[derive(Debug, PartialEq)]
 pub struct DnsMessage {
-    pub header: DnsHeader, // 12 bytes, request and section metadata
-    pub questions: Vec<DnsQuestion>, // Question section, contains the relevant queries
-    pub answers: Vec<DnsRecord>, // Answer section, contains RR:s which answer the queries
-    pub authorities: Vec<DnsRecord>, // Authority section, contains NS RR:s pointing to other name servers
-    pub additional: Vec<DnsRecord> // Additional section, contains additional resources deemed relevant by the name server
+    pub header: DnsHeader,              // 12 bytes, request and section metadata
+    pub questions: Vec<DnsQuestion>,    // Question section, contains the relevant queries
+    pub answers: Vec<DnsRecord>,        // Answer section, contains RR:s which answer the queries
+    pub authorities: Vec<DnsRecord>,    // Authority section, contains NS RR:s pointing to other name servers
+    pub additional: Vec<DnsRecord>      // Additional section, contains additional resources deemed relevant by the name server
 }
 
 impl Default for DnsMessage {

@@ -2,8 +2,6 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::net;
 
-// TODO: Add documentation, y'know those text bits with /// in front of them...
-
 pub const UDP_PACKET_MAX_SIZE_BYTES: usize = 512;
 const NAME_MAX_LENGTH_BYTES: usize = 255;
 const LABEL_MAX_LENGTH_BYTES: usize = 63;
@@ -24,8 +22,6 @@ pub enum Malformation {
     NameTooLong,    // The domain name is too long.
     InvalidCharset  // The domain name includes characters beyond the allowed charset.
 }
-
-// TODO: Extend MalformedDomainName to handle more types in the domain_name field.
 
 /// Error handling type for UDP packet operations.
 #[derive(Debug)]
@@ -62,12 +58,9 @@ impl std::fmt::Display for UdpPacketIoError {
 
 impl std::error::Error for UdpPacketIoError {}
 
-// TODO: Maybe use a "real" struct instead of a tuple struct?
-
 #[derive(Debug, PartialEq)]
 pub struct DomainName(Vec<u8>);
 
-// TODO: Avoid having panicing code in the fmt() function.
 impl Display for DomainName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut labels: Vec<&[u8]> = Vec::new();
@@ -83,7 +76,6 @@ impl Display for DomainName {
     }
 }
 
-// TODO: Check for the fact that all characters in the domain name are valid ASCII and within the accepted charset.
 impl FromStr for DomainName {
     type Err = UdpPacketIoError;
 
@@ -111,7 +103,6 @@ impl FromStr for DomainName {
     }
 }
 
-// TODO: Make all struct fields private.
 #[derive(Debug, PartialEq)]
 pub struct UdpPacket {
     pub buffer: [u8; UDP_PACKET_MAX_SIZE_BYTES],
@@ -208,17 +199,10 @@ impl UdpPacket {
         &self.buffer[start..(start + length)]
     }
 
-    // TODO: While this method currently operates without the use of compression, a DNS specification compliant
-    // compression algorithm must be used for increased efficiency.
-    // While this TODO's resolution is necessary, the compression-free implementation suffices for the purpose of
-    // generating shorter queries. As such, it is useful for the generation of name-server responses for the testing
-    // of other methods.
     pub fn write_domain_name(&mut self, domain_name: &DomainName) {
         self.write_from_slice(&domain_name.0);
     }
 
-    // TODO: Make bound checks to avoid unexpected out of bound accessing.
-    // TODO: Validate that compression pointers point do data before the current position.
     pub fn read_domain_name(&mut self, start: usize) -> DomainName {
         let mut values: Vec<&[u8]> = Vec::new();
         let mut num_jumps = 0;

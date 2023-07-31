@@ -24,7 +24,7 @@ fn main() -> Result<(), udp_packet::UdpPacketIoError> {
         header: dns_message::DnsHeader::default(),
         questions: vec![
             dns_message::DnsQuestion {
-                name: udp_packet::DomainName::from_str("taobao.com")?,
+                name: udp_packet::DomainName::from_str("www.mit.edu")?,
                 ..Default::default()
             },
         ],
