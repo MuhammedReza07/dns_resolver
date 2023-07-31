@@ -59,7 +59,7 @@ impl std::fmt::Display for UdpPacketIoError {
 impl std::error::Error for UdpPacketIoError {}
 
 #[derive(Debug, PartialEq)]
-pub struct DomainName(Vec<u8>);
+pub struct DomainName(pub Vec<u8>);
 
 impl Display for DomainName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -67,7 +67,7 @@ impl Display for DomainName {
         let mut position = 0;
         while self.0[position] != 0x00 {
             let length = self.0[position] as usize;
-            labels.push(&self.0[(position + 1)..(position + 1 + length)]);
+            labels.push(&self.0[(position + 1 )..(position + 1 + length)]);
             labels.push(&[0x2e]);
             position += length + 1;
         }
@@ -208,6 +208,7 @@ impl UdpPacket {
         let mut num_jumps = 0;
         let mut has_jumped = false;
         let mut position = start;
+        let mut num_bytes_read_before_jump = 0;
         while self.buffer[position] != 0x00 {
             if num_jumps > MAX_JUMPS {
                 panic!("Maximum number of jumps exceeded.");
@@ -223,6 +224,9 @@ impl UdpPacket {
                 }
                 values.push(&self.read_to_slice(position, length));
                 position += length;
+                if !has_jumped {
+                    num_bytes_read_before_jump += length
+                }
             }
         }
         let mut result = values.concat();
@@ -230,11 +234,10 @@ impl UdpPacket {
         if result.len() > NAME_MAX_LENGTH_BYTES {
             panic!("Name length exceeds limitations.");
         }
-        if has_jumped {
-            self.position += 2;
-        } else {
-            self.position += result.len();
-        }
+        match has_jumped {
+            true => self.position += 2 + num_bytes_read_before_jump,
+            false => self.position += result.len()
+        };
         DomainName(result)
     }
 }

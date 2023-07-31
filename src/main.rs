@@ -30,7 +30,7 @@ fn main() -> Result<(), udp_packet::UdpPacketIoError> {
         ],
         ..Default::default()
     };
-
+    
     let mut udp_packet: udp_packet::UdpPacket = udp_packet::UdpPacket::new();
     dns_message.write_to_udp_packet(&mut udp_packet);
     
@@ -43,8 +43,7 @@ fn main() -> Result<(), udp_packet::UdpPacketIoError> {
     response_packet.recv(&udp_socket)?;
 
     let decoded_message = dns_message::DnsMessage::read_from_udp_packet(&mut response_packet);
-
-    println!("{:#?}", decoded_message);
+    println!("{}", decoded_message);
 
     Ok(())
 }

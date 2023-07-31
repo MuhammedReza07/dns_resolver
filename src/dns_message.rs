@@ -1,11 +1,40 @@
 use crate::conversions;
+use std::fmt::Display;
 use std::str::FromStr;
+use std::net;
 use crate::udp_packet;
 
 const DNS_HEADER_LENGTH_BYTES: usize = 12;      // First offset where a NAME (String value) occurs in packets.
 const QUESTION_COUNT: u16 = 1;                  // The default QDCOUNT field of the DNS header.
 const RECURSION_DESIRED: bool = true;           // The default RD field of the DNS header.
 pub const TEST_DOMAIN: &str = "example.com";    // the "example" domains are reserved for testing.
+
+#[derive(Debug, PartialEq)]
+pub enum ResponseData {
+    Ipv4Address(net::Ipv4Addr),
+    DomainName(udp_packet::DomainName),
+    Unknown
+}
+
+impl ResponseData {
+    fn to_bytes(&self) -> Vec<u8> {
+        match self {
+            Self::Ipv4Address(addr) => addr.octets().to_vec(),
+            Self::DomainName(name) => name.0.to_vec(),
+            Self::Unknown => "Unknown/unimplemented".as_bytes().to_vec()
+        }
+    }
+}
+
+impl Display for ResponseData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ipv4Address(addr) => write!(f, "{}", addr),
+            Self::DomainName(name) => write!(f, "{}", name),
+            Self::Unknown => write!(f, "Unknown/unimplemented")
+        }
+    }
+}
 
 // Represented by 4 bits
 #[derive(Debug, Default, PartialEq)]
@@ -80,6 +109,7 @@ impl ResponseCode {
 pub enum RecordType {
     #[default]
     A,
+    CNAME,
     Unknown(u16)
 }
 
@@ -87,6 +117,7 @@ impl RecordType {
     fn to_u16(&self) -> u16 {
         match self {
             Self::A => 1,
+            Self::CNAME => 5,
             Self::Unknown(num) => *num
         }
     }
@@ -94,6 +125,7 @@ impl RecordType {
     fn from_u16(num: u16) -> Self {
         match num {
             1 => Self::A,
+            5 => Self::CNAME,
             _ => Self::Unknown(num)
         }
     }
@@ -126,6 +158,7 @@ impl RecordClass {
 pub enum QuestionType {
     #[default]
     A,
+    CNAME,
     Unknown(u16)
 }
 
@@ -133,6 +166,7 @@ impl QuestionType {
     fn to_u16(&self) -> u16 {
         match self {
             Self::A => 1,
+            Self::CNAME => 5,
             Self::Unknown(num) => *num
         }
     }
@@ -140,6 +174,7 @@ impl QuestionType {
     fn from_u16(num: u16) -> Self {
         match num {
             1 => Self::A,
+            5 => Self::CNAME,
             _ => Self::Unknown(num)
         }
     }
@@ -270,6 +305,12 @@ pub struct DnsQuestion {
     pub question_class: QuestionClass   // 16 bits, specifies the class of the query, such as IN for the internet
 }
 
+impl Display for DnsQuestion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}\t{:?}\t{:?}", self.name, self.question_class, self.question_type)
+    }
+}
+
 impl Default for DnsQuestion {
     fn default() -> Self {
         Self {
@@ -306,20 +347,26 @@ pub struct DnsRecord {
     pub record_class: RecordClass,      // 16 bits, specifies the RR's class and thus the class of the contents of RDATA
     pub ttl: u32,                       // 32 bits, Specifies how long (in seconds) the RR can be cached
     pub length: u16,                    // 16 bits, Specifies the length (in bytes) of the contents of RDATA
-    pub data: Vec<u8>                   // The RDATA field, contains the name server's response data
+    pub data: ResponseData              // The RDATA field, contains the name server's response data
+}
+
+impl Display for DnsRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}\t{:?}\t{:?}\t{}\t{}", self.name, self.record_class, self.record_type, self.ttl, self.data)
+    }
 }
 
 impl DnsRecord {
     fn write_to_udp_packet(&self, udp_packet: &mut udp_packet::UdpPacket) {
         udp_packet.write_domain_name(&self.name);
-        if udp_packet.position + 10 + self.data.len() >= udp_packet::UDP_PACKET_MAX_SIZE_BYTES {
+        if udp_packet.position + 10 + self.length as usize >= udp_packet::UDP_PACKET_MAX_SIZE_BYTES {
             panic!("Cannot write out of packet bounds.");
         }
         udp_packet.write_from_slice(&conversions::u16_to_u8(self.record_type.to_u16()));
         udp_packet.write_from_slice(&conversions::u16_to_u8(self.record_class.to_u16()));
         udp_packet.write_from_slice(&conversions::u32_to_u8(self.ttl));
         udp_packet.write_from_slice(&conversions::u16_to_u8(self.length));
-        udp_packet.write_from_slice(&self.data);
+        udp_packet.write_from_slice(&self.data.to_bytes());
     }
 
     fn read_from_udp_packet(udp_packet: &mut udp_packet::UdpPacket) -> Self {
@@ -328,13 +375,31 @@ impl DnsRecord {
         let record_class = RecordClass::from_u16(udp_packet.read_u16());
         let ttl = udp_packet.read_u32();
         let length =  udp_packet.read_u16();
-        Self {
-            name,
-            record_type,
-            record_class,
-            ttl,
-            length,
-            data: Vec::from(udp_packet.read_to_slice_incr(udp_packet.position, length as usize))
+        match record_type {
+            RecordType::A => Self {
+                name,
+                record_type,
+                record_class,
+                ttl,
+                length,
+                data: ResponseData::Ipv4Address(net::Ipv4Addr::from(udp_packet.read_u32()))
+            },
+            RecordType::CNAME => Self {
+                name,
+                record_type,
+                record_class,
+                ttl,
+                length,
+                data: ResponseData::DomainName(udp_packet.read_domain_name(udp_packet.position))
+            },
+            RecordType::Unknown(_) => Self {
+                name,
+                record_type,
+                record_class,
+                ttl,
+                length,
+                data: ResponseData::Unknown
+            }
         }
     }
 }
@@ -357,6 +422,24 @@ impl Default for DnsMessage {
             authorities: Default::default(), 
             additional: Default::default() 
         }
+    }
+}
+
+impl Display for DnsMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for question in self.questions.iter() {
+            writeln!(f, "{}", question.to_string())?;
+        }
+        for answer in self.answers.iter() {
+            writeln!(f, "{}", answer.to_string())?;
+        }
+        for authority in self.authorities.iter() {
+            writeln!(f, "{}", authority.to_string())?;
+        }
+        for additional in self.additional.iter() {
+            writeln!(f, "{}", additional.to_string())?;
+        }
+        Ok(())
     }
 }
 
