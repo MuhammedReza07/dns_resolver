@@ -191,14 +191,6 @@ impl UdpPacket {
         &self.buffer[start..(start + length)]
     }
 
-    pub fn read_to_slice_incr(&mut self, start: usize, length: usize) -> &[u8] {
-        if start + length >= UDP_PACKET_MAX_SIZE_BYTES {
-            panic!("Cannot read out of buffer bounds.")
-        }
-        self.position += length;
-        &self.buffer[start..(start + length)]
-    }
-
     pub fn write_domain_name(&mut self, domain_name: &DomainName) {
         self.write_from_slice(&domain_name.0);
     }

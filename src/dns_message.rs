@@ -154,50 +154,75 @@ impl RecordClass {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum QuestionType {
-    #[default]
-    A,
-    CNAME,
+    RecordType(RecordType),
     Unknown(u16)
+}
+
+impl Display for QuestionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RecordType(record_type) => write!(f, "{:?}", record_type),
+            Self::Unknown(_) => write!(f, "{:?}", self)
+        }
+    }
+}
+
+impl Default for QuestionType {
+    fn default() -> Self {
+        Self::RecordType(RecordType::A)
+    }
 }
 
 impl QuestionType {
     fn to_u16(&self) -> u16 {
         match self {
-            Self::A => 1,
-            Self::CNAME => 5,
+            Self::RecordType(record_type) => record_type.to_u16(),
             Self::Unknown(num) => *num
         }
     }
 
     fn from_u16(num: u16) -> Self {
         match num {
-            1 => Self::A,
-            5 => Self::CNAME,
+            1 | 5 => Self::RecordType(RecordType::from_u16(num)),
             _ => Self::Unknown(num)
         }
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum QuestionClass {
-    #[default]
-    IN,
+    RecordClass(RecordClass),
     Unknown(u16)
+}
+
+impl Display for QuestionClass {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RecordClass(record_class) => write!(f, "{:?}", record_class),
+            Self::Unknown(_) => write!(f, "{:?}", self)
+        }
+    }
+}
+
+impl Default for QuestionClass {
+    fn default() -> Self {
+        Self::RecordClass(RecordClass::IN)
+    }
 }
 
 impl QuestionClass {
     fn to_u16(&self) -> u16 {
         match self {
-            Self::IN => 1,
+            Self::RecordClass(record_class) => record_class.to_u16(),
             Self::Unknown(num) => *num
         }
     }
 
     fn from_u16(num: u16) -> Self {
         match num {
-            1 => Self::IN,
+            1 => Self::RecordClass(RecordClass::from_u16(num)),
             _ => Self::Unknown(num)
         }
     }
@@ -269,8 +294,8 @@ impl DnsHeader {
     }
 
     fn read_from_udp_packet(udp_packet: &mut udp_packet::UdpPacket) -> Self {
-        let header_bytes = udp_packet.read_to_slice_incr(0, DNS_HEADER_LENGTH_BYTES);
-        let flag_bytes = conversions::u8_to_u16([header_bytes[2], header_bytes[3]]);
+        let id = udp_packet.read_u16();
+        let flag_bytes = udp_packet.read_u16();
         // Flag bitfield format:
         // 0b 1000 0000 0000 0000 (0x8000) response
         // 0b 0111 1000 0000 0000 (0x7800) operation_code
@@ -281,7 +306,7 @@ impl DnsHeader {
         // 0b 0000 0000 0111 0000 (0x0070) z
         // 0b 0000 0000 0000 1111 (0x000f) response_code
         Self {
-            id: conversions::u8_to_u16([header_bytes[0], header_bytes[1]]), 
+            id, 
             response: conversions::u16_to_bool((flag_bytes & 0x8000) >> 15), 
             operation_code: OperationCode::from_u16((flag_bytes & 0x7800) >> 11), 
             authoritative_answer: conversions::u16_to_bool((flag_bytes & 0x400) >> 10), 
@@ -290,10 +315,10 @@ impl DnsHeader {
             recursion_available: conversions::u16_to_bool((flag_bytes & 0x80) >> 7), 
             z: (flag_bytes & 0x70) >> 4, 
             response_code: ResponseCode::from_u16(flag_bytes & 0xf), 
-            question_count: conversions::u8_to_u16([header_bytes[4], header_bytes[5]]), 
-            answer_count: conversions::u8_to_u16([header_bytes[6], header_bytes[7]]), 
-            authority_count: conversions::u8_to_u16([header_bytes[8], header_bytes[9]]), 
-            additional_count: conversions::u8_to_u16([header_bytes[10], header_bytes[11]]) 
+            question_count: udp_packet.read_u16(), 
+            answer_count: udp_packet.read_u16(), 
+            authority_count: udp_packet.read_u16(), 
+            additional_count: udp_packet.read_u16() 
         }
     }
 }
@@ -307,7 +332,7 @@ pub struct DnsQuestion {
 
 impl Display for DnsQuestion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}\t{:?}\t{:?}", self.name, self.question_class, self.question_type)
+        write!(f, "{}\t{}\t{}", self.name, self.question_class, self.question_type)
     }
 }
 
@@ -550,9 +575,9 @@ mod tests {
         assert_eq!(OperationCode::default(), OperationCode::StandardQuery);
         assert_eq!(ResponseCode::default(), ResponseCode::Success);
         assert_eq!(RecordType::default(), RecordType::A);
-        assert_eq!(QuestionType::default(), QuestionType::A);
+        assert_eq!(QuestionType::default(), QuestionType::RecordType(RecordType::A));
         assert_eq!(RecordClass::default(), RecordClass::IN);
-        assert_eq!(QuestionClass::default(), QuestionClass::IN);
+        assert_eq!(QuestionClass::default(), QuestionClass::RecordClass(RecordClass::IN));
 
         // Structs
         assert_eq!(
@@ -577,8 +602,8 @@ mod tests {
             DnsQuestion::default(),
             DnsQuestion {
                 name: udp_packet::DomainName::from_str(TEST_DOMAIN).expect("Failed to construct DomainName."),
-                question_type: QuestionType::A,
-                question_class: QuestionClass::IN
+                question_type: QuestionType::RecordType(RecordType::A),
+                question_class: QuestionClass::RecordClass(RecordClass::IN)
             }
         );
         assert_eq!(
