@@ -2,6 +2,8 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::net;
 
+// TODO: Add documentation, y'know those text bits with /// in front of them...
+
 pub const UDP_PACKET_MAX_SIZE_BYTES: usize = 512;
 const NAME_MAX_LENGTH_BYTES: usize = 255;
 const LABEL_MAX_LENGTH_BYTES: usize = 63;
