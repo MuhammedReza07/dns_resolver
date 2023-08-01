@@ -1,31 +1,64 @@
-/// Module containing conversion functionality for primitives not provided
-/// by the standard library, such as the conversion u32 -> u8.
-mod conversions;
-
-/// Module containing utilities for working with DNS queries, such as specialised
-/// structs (e.g. DnsHeader, DnsQuestion, etc.), and the functionality needed to both
-/// read and write them from/to a UDP packet.
-mod dns_message;
-
-/// Module containing utilities for handling a DNS-compatible UDP packet, i.e.
-/// a UDP packet of size 512 bytes. The module's functionality is specifically
-/// adapted to the DNS protocol and is therefore unsuitable for use in non-DNS
-/// applications.
-mod udp_packet;
-
+use dns_resolver::{dns_message, udp_packet};
+use std::env;
 use std::str::FromStr;
 use std::net;
 
 const LOCAL_ADDRESS: (net::Ipv4Addr, u16) = (net::Ipv4Addr::UNSPECIFIED, 0);
 const NAME_SERVER_ADDRESS: (&str, u16) = ("8.8.8.8", 53);
 
-fn main() -> Result<(), udp_packet::UdpPacketIoError> {
+// Grammar: <Operation code> <Question class> <Question type> <Domain name>
+
+#[derive(Debug)]
+struct Arguments {
+    operation_code: dns_message::OperationCode,
+    question_class: dns_message::QuestionClass,
+    question_type: dns_message::QuestionType,
+    domain_name: udp_packet::DomainName
+}
+
+// TODO: Replace the *::Unknown here with some other member indicating an error.
+impl Arguments {
+    fn get() -> udp_packet::Result<Self> {
+        let env_args: Vec<String> = env::args().collect();
+        if env_args.len() != 5 {
+            panic!("Must supply 4 arguments.")
+        }
+        let arguments = Self {
+            operation_code: match env_args[1].to_uppercase().as_str() {
+                "QUERY" => dns_message::OperationCode::StandardQuery,
+                _ => dns_message::OperationCode::Unknown(0)
+            },
+            question_class: match env_args[2].to_uppercase().as_str() {
+                "IN" => dns_message::QuestionClass::RecordClass(dns_message::RecordClass::IN),
+                _ => dns_message::QuestionClass::Unknown(0)
+            },
+            question_type: match env_args[3].to_uppercase().as_str() {
+                "A" => dns_message::QuestionType::RecordType(dns_message::RecordType::A),
+                "AAAA" => dns_message::QuestionType::RecordType(dns_message::RecordType::AAAA),
+                "CNAME" => dns_message::QuestionType::RecordType(dns_message::RecordType::CNAME),
+                "SOA" => dns_message::QuestionType::RecordType(dns_message::RecordType::SOA),
+                _ => dns_message::QuestionType::Unknown(0)
+            },
+            domain_name: match env_args[4].to_uppercase().as_str() {
+                _ => udp_packet::DomainName::from_str(env_args[4].as_str())?
+            }
+        };
+        Ok(arguments)
+    }
+}
+
+fn main() -> udp_packet::Result<()> {
+    let arguments = Arguments::get()?;
     let dns_message: dns_message::DnsMessage = dns_message::DnsMessage {
-        header: dns_message::DnsHeader::default(),
+        header: dns_message::DnsHeader {
+            operation_code: arguments.operation_code,
+            ..Default::default()
+        },
         questions: vec![
             dns_message::DnsQuestion {
-                name: udp_packet::DomainName::from_str("amazon.com")?,
-                ..Default::default()
+                name: arguments.domain_name,
+                question_class: arguments.question_class,
+                question_type: arguments.question_type
             },
         ],
         ..Default::default()
@@ -42,7 +75,8 @@ fn main() -> Result<(), udp_packet::UdpPacketIoError> {
     let mut response_packet: udp_packet::UdpPacket = udp_packet::UdpPacket::new();
     response_packet.recv(&udp_socket)?;
 
-    let decoded_message = dns_message::DnsMessage::read_from_udp_packet(&mut response_packet);
+    let decoded_message = dns_message::DnsMessage::read_from_udp_packet(&mut response_packet)?;
+    println!("{:#?}", decoded_message);
     println!("{}", decoded_message);
 
     Ok(())
