@@ -25,19 +25,21 @@ impl Arguments {
         }
         let arguments = Self {
             operation_code: match env_args[1].to_uppercase().as_str() {
-                "QUERY" => dns_message::OperationCode::StandardQuery,
-                _ => dns_message::OperationCode::Unknown(0)
+                "QUERY" => dns_message::OperationCode::QUERY,
+                _ => panic!("Invalid operation code.")
             },
             question_class: match env_args[2].to_uppercase().as_str() {
                 "IN" => dns_message::QuestionClass::RecordClass(dns_message::RecordClass::IN),
-                _ => dns_message::QuestionClass::Unknown(0)
+                _ => panic!("Invalid question class.")
             },
             question_type: match env_args[3].to_uppercase().as_str() {
                 "A" => dns_message::QuestionType::RecordType(dns_message::RecordType::A),
                 "AAAA" => dns_message::QuestionType::RecordType(dns_message::RecordType::AAAA),
                 "CNAME" => dns_message::QuestionType::RecordType(dns_message::RecordType::CNAME),
+                "MX" => dns_message::QuestionType::RecordType(dns_message::RecordType::MX),
+                "NS" => dns_message::QuestionType::RecordType(dns_message::RecordType::NS),
                 "SOA" => dns_message::QuestionType::RecordType(dns_message::RecordType::SOA),
-                _ => dns_message::QuestionType::Unknown(0)
+                _ => panic!("Invalid question type.")
             },
             domain_name: match env_args[4].to_uppercase().as_str() {
                 _ => udp_packet::DomainName::from_str(env_args[4].as_str())?
@@ -65,7 +67,7 @@ fn main() -> udp_packet::Result<()> {
     };
     
     let mut udp_packet: udp_packet::UdpPacket = udp_packet::UdpPacket::new();
-    dns_message.write_to_udp_packet(&mut udp_packet);
+    dns_message.write_to_udp_packet(&mut udp_packet)?;
     
     let udp_socket = net::UdpSocket::bind(LOCAL_ADDRESS)
     .expect("Failed to bind a UdpSocket to address.");

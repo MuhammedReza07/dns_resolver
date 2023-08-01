@@ -37,6 +37,9 @@ pub enum UdpPacketError {
         source: Malformation    // The malformation.
     },
 
+    /// Maximum number of jumps exceeded, i.e. the message might be malformed or malicious.
+    MaxJumpsExceeded,
+
     /// An error occurred while performing networking operations.
     NetworkIo {
         description: String,    // An error message.
@@ -58,6 +61,7 @@ impl std::fmt::Display for UdpPacketError {
                 description, 
                 source 
             } => write!(f, "an error occurred while processing {}, source: {:?}, description: {}", domain_name, source, description),
+            UdpPacketError::MaxJumpsExceeded => write!(f, "maximum number of jumps while exceeded while reading a compressed domain name"),
             UdpPacketError::NetworkIo { 
                 description, 
                 source 
@@ -72,7 +76,23 @@ impl std::fmt::Display for UdpPacketError {
 
 impl std::error::Error for UdpPacketError {}
 
-// TODO: Implement the Display trait for ZoneInfo.
+#[derive(Debug, PartialEq)]
+pub struct MXData {
+    preference: u16,
+    exchange: DomainName
+}
+
+impl Display for MXData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}\t{}", self.preference, self.exchange)
+    }
+}
+
+impl MXData {
+    pub fn as_bytes(&self) -> Vec<u8> {
+        [conversions::u16_to_u8(self.preference).to_vec(), self.exchange.0.to_vec()].concat()
+    }
+}
 
 /// Struct for the SOA RR's data.
 #[derive(Debug, PartialEq)]
@@ -93,19 +113,18 @@ impl Display for SOAData {
 }
 
 impl SOAData {
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let domain_names = [
+    pub fn as_bytes(&self) -> Vec<u8> {
+        [
             self.name.0.to_vec(),
-            self.mailbox.0.to_vec()
-        ].concat();
-        let nums = [
-            conversions::u32_to_u8(self.serial),
-            conversions::u32_to_u8(self.refresh),
-            conversions::u32_to_u8(self.retry),
-            conversions::u32_to_u8(self.expire),
-            conversions::u32_to_u8(self.minimum),
-        ].concat();
-        [domain_names, nums].concat()
+            self.mailbox.0.to_vec(),
+            [
+                conversions::u32_to_u8(self.serial),
+                conversions::u32_to_u8(self.refresh),
+                conversions::u32_to_u8(self.retry),
+                conversions::u32_to_u8(self.expire),
+                conversions::u32_to_u8(self.minimum),
+            ].concat().to_vec()
+        ].concat()
     }
 }
 
@@ -253,36 +272,36 @@ impl UdpPacket {
         }
     }
 
-    pub fn write_from_slice(&mut self, slice: &[u8]) -> () {
+    pub fn write_from_slice(&mut self, slice: &[u8]) -> Result<()> {
         if self.position + slice.len() >= UDP_PACKET_MAX_SIZE_BYTES {
-            panic!("Cannot write out of buffer bounds.");
+            return Err(UdpPacketError::OutOfBounds { 
+                length: UDP_PACKET_MAX_SIZE_BYTES, 
+                index: self.position + slice.len()
+            })
         }
         for (index, element) in slice.iter().enumerate() {
             self.buffer[self.position + index] = *element;
         }
         self.position += slice.len();
+        Ok(())
     }
 
-    pub fn read_to_slice(&self, start: usize, length: usize) -> &[u8] {
+    pub fn read_to_slice(&self, start: usize, length: usize) -> Result<&[u8]> {
         if start + length >= UDP_PACKET_MAX_SIZE_BYTES {
-            panic!("Cannot read out of buffer bounds.")
+            return Err(UdpPacketError::OutOfBounds { 
+                length: UDP_PACKET_MAX_SIZE_BYTES, 
+                index: start + length
+            })
         }
-        &self.buffer[start..(start + length)]
+        Ok(&self.buffer[start..(start + length)])
     }
 
-    pub fn read_to_slice_incr(&mut self, start: usize, length: usize) -> &[u8] {
-        if start + length >= UDP_PACKET_MAX_SIZE_BYTES {
-            panic!("Cannot read out of buffer bounds.")
-        }
-        self.position += length;
-        &self.buffer[start..(start + length)]
+    pub fn write_domain_name(&mut self, domain_name: &DomainName) -> Result<()> {
+        self.write_from_slice(&domain_name.0)?;
+        Ok(())
     }
 
-    pub fn write_domain_name(&mut self, domain_name: &DomainName) {
-        self.write_from_slice(&domain_name.0);
-    }
-
-    pub fn read_domain_name(&mut self, start: usize) -> DomainName {
+    pub fn read_domain_name(&mut self, start: usize) -> Result<DomainName> {
         let mut values: Vec<&[u8]> = Vec::new();
         let mut num_jumps = 0;
         let mut has_jumped = false;
@@ -290,7 +309,7 @@ impl UdpPacket {
         let mut num_bytes_read_before_jump = 0;
         while self.buffer[position] != 0x00 {
             if num_jumps > MAX_JUMPS {
-                panic!("Maximum number of jumps exceeded.");
+                return Err(UdpPacketError::MaxJumpsExceeded)
             } else if self.buffer[position] & 0xc0 == 0xc0 {
                 let offset = (((self.buffer[position] & 0x3f) as u16) << 8) | (self.buffer[position + 1] as u16);
                 position = offset as usize;
@@ -299,9 +318,13 @@ impl UdpPacket {
             } else {
                 let length = (self.buffer[position] + 1) as usize;
                 if length > LABEL_MAX_LENGTH_BYTES {
-                    panic!("Label length exceeds limitations.");
+                    return Err(UdpPacketError::MalformedDomainName { 
+                        domain_name: String::from("a domain name"), 
+                        description: format!("the length of a label exceeds 63 bytes"), 
+                        source: Malformation::LabelTooLong
+                    })
                 }
-                values.push(&self.read_to_slice(position, length));
+                values.push(&self.read_to_slice(position, length)?);
                 position += length;
                 if !has_jumped {
                     num_bytes_read_before_jump += length
@@ -311,24 +334,35 @@ impl UdpPacket {
         let mut result = values.concat();
         result.push(0);
         if result.len() > NAME_MAX_LENGTH_BYTES {
-            panic!("Name length exceeds limitations.");
+            return Err(UdpPacketError::MalformedDomainName { 
+                domain_name: String::from_utf8(result).expect("Failed to construct string from UTF-8."), 
+                description: format!("domain name length exceeds 255 bytes"), 
+                source: Malformation::NameTooLong
+            })
         }
         match has_jumped {
             true => self.position += 2 + num_bytes_read_before_jump,
             false => self.position += result.len()
         };
-        DomainName(result)
+        Ok(DomainName(result))
     }
 
     pub fn read_soa_data(&mut self, start: usize) -> Result<SOAData> {
         Ok(SOAData { 
-            name: self.read_domain_name(start), 
-            mailbox: self.read_domain_name(self.position), 
+            name: self.read_domain_name(start)?, 
+            mailbox: self.read_domain_name(self.position)?, 
             serial: self.read_u32()?, 
             refresh: self.read_u32()?, 
             retry: self.read_u32()?, 
             expire: self.read_u32()?, 
             minimum:self.read_u32()? 
+        })
+    }
+
+    pub fn read_mx_data(&mut self) -> Result<MXData> {
+        Ok(MXData { 
+            preference: self.read_u16()?, 
+            exchange: self.read_domain_name(self.position)?
         })
     }
 }
@@ -375,7 +409,7 @@ mod tests {
         ];
         let slice = [65, 89, 1, 0, 0, 2, 0, 0, 0, 0, 0, 0];
         let mut udp_packet = UdpPacket::new();
-        udp_packet.write_from_slice(&slice);
+        udp_packet.write_from_slice(&slice).expect("Failed to write to packet.");
         assert_eq!(udp_packet, UdpPacket {
             buffer: buffer,
             position: 12
@@ -414,7 +448,7 @@ mod tests {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
         ];
-        udp_packet.write_from_slice(&slice);
+        udp_packet.write_from_slice(&slice).expect("Failed to write to packet.");
         assert_eq!(udp_packet, UdpPacket {
             buffer: buffer,
             position: 24
@@ -424,8 +458,7 @@ mod tests {
     #[test]
     fn write_string_test() {
         let mut udp_packet: UdpPacket = UdpPacket::new();
-        udp_packet.write_domain_name(&DomainName::from_str(dns_message::TEST_DOMAIN)
-        .expect("Failed to construct DomainName."));
+        udp_packet.write_domain_name(&DomainName::from_str(dns_message::TEST_DOMAIN).expect("Failed to construct DomainName.")).expect("Failed to write to packet.");
         assert_eq!(udp_packet, UdpPacket {
             buffer: [
                 7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 0, 0,

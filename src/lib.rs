@@ -12,3 +12,32 @@ pub mod dns_message;
 /// adapted to the DNS protocol and is therefore unsuitable for use in non-DNS
 /// applications.
 pub mod udp_packet;
+
+#[macro_export]
+macro_rules! build_enum {
+    ($name: ident; $($variant: ident = $value: expr),*) => {
+        #[derive(Clone, Copy, Debug, PartialEq)]
+        pub enum $name {
+            $($variant,)*
+        }
+        impl std::convert::TryFrom<u16> for $name {
+            type Error = String;
+
+            fn try_from(value: u16) -> Result<Self, Self::Error> { 
+                match value {
+                    $($value => Ok(Self::$variant),)*
+                    _ => Err(String::from("Invalid u16."))
+                }
+            }
+        }
+        impl std::convert::TryInto<u16> for $name {
+            type Error = String;
+
+            fn try_into(self) -> Result<u16, Self::Error> { 
+                match self {
+                    $(Self::$variant => Ok($value),)*
+                }
+            }
+        }
+    };
+}
