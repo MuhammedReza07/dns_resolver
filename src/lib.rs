@@ -51,7 +51,7 @@ macro_rules! build_enum {
                 write!(f, "{:?}", self)
             }
         }
-        impl FromStr for $name {
+        impl std::str::FromStr for $name {
             type Err = String;
         
             fn from_str(s: &str) -> Result<Self, Self::Err> {
