@@ -13,11 +13,18 @@ pub mod dns_message;
 /// applications.
 pub mod udp_packet;
 
+/// A macro used to construct an enum commonly used in the dns_message module,
+/// namely a public enum which can be converted to and from u16 and implementing the
+/// Default trait such that the first variant is returned when default() is called.
+/// 
+/// Note that the variants of the enum cannot include anything other than an identifier,
+/// which means that no named or unnamed parameters can be included in a variant.
 #[macro_export]
 macro_rules! build_enum {
-    ($name: ident; $($variant: ident = $value: expr),*) => {
-        #[derive(Clone, Copy, Debug, PartialEq)]
+    ($name: ident; $($variant: ident = $value: expr),*$(,)?) => {
+        #[derive(Clone, Copy, Debug, Default, PartialEq)]
         pub enum $name {
+            #[default]
             $($variant,)*
         }
         impl std::convert::TryFrom<u16> for $name {
@@ -26,7 +33,7 @@ macro_rules! build_enum {
             fn try_from(value: u16) -> Result<Self, Self::Error> { 
                 match value {
                     $($value => Ok(Self::$variant),)*
-                    _ => Err(String::from("Invalid u16."))
+                    _ => Err(format!("Invalid u16 ({}).", value))
                 }
             }
         }
@@ -36,6 +43,21 @@ macro_rules! build_enum {
             fn try_into(self) -> Result<u16, Self::Error> { 
                 match self {
                     $(Self::$variant => Ok($value),)*
+                }
+            }
+        }
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{:?}", self)
+            }
+        }
+        impl FromStr for $name {
+            type Err = String;
+        
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                match s {
+                    $(stringify!($variant) => Ok(Self::$variant),)*
+                    _ => Err(format!("Encountered invalid variant '{}'.", s))
                 }
             }
         }

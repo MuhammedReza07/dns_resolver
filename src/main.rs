@@ -5,14 +5,15 @@ use std::net;
 
 const LOCAL_ADDRESS: (net::Ipv4Addr, u16) = (net::Ipv4Addr::UNSPECIFIED, 0);
 const NAME_SERVER_ADDRESS: (&str, u16) = ("8.8.8.8", 53);
+const ACTIVATE_LOGGING: bool = true;
 
 // Grammar: <Operation code> <Question class> <Question type> <Domain name>
 
 #[derive(Debug)]
 struct Arguments {
     operation_code: dns_message::OperationCode,
-    question_class: dns_message::QuestionClass,
-    question_type: dns_message::QuestionType,
+    question_class: dns_message::CombinedClass,
+    question_type: dns_message::CombinedType,
     domain_name: udp_packet::DomainName
 }
 
@@ -24,26 +25,10 @@ impl Arguments {
             panic!("Must supply 4 arguments.")
         }
         let arguments = Self {
-            operation_code: match env_args[1].to_uppercase().as_str() {
-                "QUERY" => dns_message::OperationCode::QUERY,
-                _ => panic!("Invalid operation code.")
-            },
-            question_class: match env_args[2].to_uppercase().as_str() {
-                "IN" => dns_message::QuestionClass::RecordClass(dns_message::RecordClass::IN),
-                _ => panic!("Invalid question class.")
-            },
-            question_type: match env_args[3].to_uppercase().as_str() {
-                "A" => dns_message::QuestionType::RecordType(dns_message::RecordType::A),
-                "AAAA" => dns_message::QuestionType::RecordType(dns_message::RecordType::AAAA),
-                "CNAME" => dns_message::QuestionType::RecordType(dns_message::RecordType::CNAME),
-                "MX" => dns_message::QuestionType::RecordType(dns_message::RecordType::MX),
-                "NS" => dns_message::QuestionType::RecordType(dns_message::RecordType::NS),
-                "SOA" => dns_message::QuestionType::RecordType(dns_message::RecordType::SOA),
-                _ => panic!("Invalid question type.")
-            },
-            domain_name: match env_args[4].to_uppercase().as_str() {
-                _ => udp_packet::DomainName::from_str(env_args[4].as_str())?
-            }
+            operation_code: FromStr::from_str(env_args[1].to_ascii_uppercase().as_str()).unwrap(),
+            question_class: FromStr::from_str(env_args[2].to_uppercase().as_str()).unwrap(),
+            question_type: FromStr::from_str(env_args[3].to_uppercase().as_str()).unwrap(),
+            domain_name: udp_packet::DomainName::from_str(env_args[4].as_str())?
         };
         Ok(arguments)
     }
@@ -78,8 +63,11 @@ fn main() -> udp_packet::Result<()> {
     response_packet.recv(&udp_socket)?;
 
     let decoded_message = dns_message::DnsMessage::read_from_udp_packet(&mut response_packet)?;
-    println!("{:#?}", decoded_message);
     println!("{}", decoded_message);
+    if ACTIVATE_LOGGING {
+        std::fs::write("./logs.txt", format!("{:#?}", decoded_message))
+        .expect("Failed to log raw output.");
+    }
 
     Ok(())
 }

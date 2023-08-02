@@ -1,17 +1,189 @@
+use crate::build_enum;
 use crate::conversions;
 use crate::udp_packet;
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
 use std::str::FromStr;
 use std::net;
 
+// Flag bitfield format (DnsHeader):
+// 0b 1000 0000 0000 0000 (0x8000) response
+// 0b 0111 1000 0000 0000 (0x7800) operation_code
+// 0b 0000 0100 0000 0000 (0x0400) authoritative_answer
+// 0b 0000 0010 0000 0000 (0x0200) truncated 
+// 0b 0000 0001 0000 0000 (0x0100) recursion_desired
+// 0b 0000 0000 1000 0000 (0x0080) recursion_available
+// 0b 0000 0000 0111 0000 (0x0070) z
+// 0b 0000 0000 0000 1111 (0x000f) response_code
+
 // TODO: Improve variable and enum variant names, make them more consistent.
 // It would, for example, be better to use a more descriptive name for the MX, NS and SOA variant of RecordType.
+// TODO: Implement proper error handling for this module.
 
 const DNS_HEADER_LENGTH_BYTES: usize = 12;      // First offset where a NAME (String value) occurs in packets.
 const QUESTION_COUNT: u16 = 1;                  // The default QDCOUNT field of the DNS header.
 const RECURSION_DESIRED: bool = true;           // The default RD field of the DNS header.
 pub const TEST_DOMAIN: &str = "example.com";    // the "example" domains are reserved for testing.
+
+build_enum!(
+    OperationCode;
+    QUERY = 0       // A standard query, i.e. domain_name -> RR
+);
+
+build_enum!(
+    ResponseCode;
+    Success = 0,            // No error
+    FormatError = 1,        // DNS packet could not be interpreted due to malformed a query
+    ServerFailure = 2,      // DNS packet could not be interpreted due to internal name server error
+    NameError = 3,          // Domain name does not exist, only from authoritative name servers
+    NotImplemented = 4,     // The requested functionality has not been implemented by the server
+    Refused = 5             // The name server refuses to respond for some reason
+);
+
+build_enum!(
+    RecordType;
+    A = 1,          // An Ipv4 address (u32)
+    NS = 2,         // Name server domain name
+    CNAME = 5,      // Canonical name of an alias
+    SOA = 6,        // Name server zone information
+    MX = 15,        // The domain name of a MailExchange address
+    AAAA = 28       // An Ipv6 address (u128)
+);
+
+build_enum!(
+    RecordClass;
+    IN = 1
+);
+
+build_enum!(
+    QuestionType;
+    Any = 255
+);
+
+build_enum!(
+    QuestionClass;
+    Any = 255
+);
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CombinedType {
+    QuestionType(QuestionType),
+    RecordType(RecordType)
+}
+
+impl Default for CombinedType {
+    fn default() -> Self {
+        Self::RecordType(RecordType::default())
+    }
+}
+
+impl Display for CombinedType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::QuestionType(qtype) => qtype.fmt(f),
+            Self::RecordType(rtype) => rtype.fmt(f)
+        }
+    }
+}
+
+impl FromStr for CombinedType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match QuestionType::from_str(s) {
+            Ok(qtype) => Ok(CombinedType::QuestionType(qtype)),
+            Err(_) => match RecordType::from_str(s) {
+                Ok(rtype) => Ok(CombinedType::RecordType(rtype)),
+                Err(_) => Err(format!("Encountered invalid variant '{}'.", s))
+            }
+        }
+    }
+}
+
+impl TryFrom<u16> for CombinedType {
+    type Error = String;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match QuestionType::try_from(value) {
+            Ok(qtype) => Ok(Self::QuestionType(qtype)),
+            Err(_) => match RecordType::try_from(value) {
+                Ok(rtype) => Ok(Self::RecordType(rtype)),
+                Err(_) => Err(format!("Invalid u16 ({}).", value))
+            }
+        }
+    }
+}
+
+impl TryInto<u16> for CombinedType {
+    type Error = String;
+
+    fn try_into(self) -> Result<u16, Self::Error> {
+        match self {
+            Self::QuestionType(qtype) => qtype.try_into(),
+            Self::RecordType(rtype) => rtype.try_into()
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CombinedClass {
+    QuestionClass(QuestionClass),
+    RecordClass(RecordClass)
+}
+
+impl Default for CombinedClass {
+    fn default() -> Self {
+        Self::RecordClass(RecordClass::default())
+    }
+}
+
+impl Display for CombinedClass {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::QuestionClass(qclass) => qclass.fmt(f),
+            Self::RecordClass(rclass) => rclass.fmt(f)
+        }
+    }
+}
+
+impl FromStr for CombinedClass {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match QuestionClass::from_str(s) {
+            Ok(qclass) => Ok(CombinedClass::QuestionClass(qclass)),
+            Err(_) => match RecordClass::from_str(s) {
+                Ok(rclass) => Ok(CombinedClass::RecordClass(rclass)),
+                Err(_) => Err(format!("Encountered invalid variant '{}'.", s))
+            }
+        }
+    }
+}
+
+impl TryFrom<u16> for CombinedClass {
+    type Error = String;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match QuestionClass::try_from(value) {
+            Ok(qclass) => Ok(Self::QuestionClass(qclass)),
+            Err(_) => match RecordClass::try_from(value) {
+                Ok(rclass) => Ok(Self::RecordClass(rclass)),
+                Err(_) => Err(format!("Invalid u16 ({}).", value))
+            }
+        }
+    }
+}
+
+impl TryInto<u16> for CombinedClass {
+    type Error = String;
+
+    fn try_into(self) -> Result<u16, Self::Error> {
+        match self {
+            Self::QuestionClass(qclass) => qclass.try_into(),
+            Self::RecordClass(rclass) => rclass.try_into()
+        }
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub enum ResponseData {
@@ -30,9 +202,9 @@ impl ResponseData {
             Self::A(addr) => addr.octets().to_vec(),
             Self::AAAA(addr) => addr.octets().to_vec(),
             Self::CNAME(name) => name.0.to_vec(),
-            Self::SOA(data) => data.as_bytes(),
             Self::MX(data) => data.as_bytes(),
             Self::NS(name) => name.0.to_vec(),
+            Self::SOA(data) => data.as_bytes(),
             Self::Unknown => "Unknown/unimplemented".as_bytes().to_vec()
         }
     }
@@ -41,143 +213,13 @@ impl ResponseData {
 impl Display for ResponseData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::A(addr) => write!(f, "{}", addr),
-            Self::AAAA(addr) => write!(f, "{}", addr),
-            Self::CNAME(name) => write!(f, "{}", name),
-            Self::MX(data) => write!(f, "{}", data),
-            Self::NS(data) => write!(f, "{}", data),
-            Self::SOA(info) => write!(f, "{}", info),
+            Self::A(addr) => addr.fmt(f),
+            Self::AAAA(addr) => addr.fmt(f),
+            Self::CNAME(name) => name.fmt(f),
+            Self::MX(data) => data.fmt(f),
+            Self::NS(data) => data.fmt(f),
+            Self::SOA(info) => info.fmt(f),
             Self::Unknown => write!(f, "Unknown/unimplemented")
-        }
-    }
-}
-
-// 4 bits
-crate::build_enum!(
-    OperationCode;
-    QUERY = 0
-);
-
-impl Default for OperationCode {
-    fn default() -> Self {
-        Self::QUERY
-    }
-}
-
-// 4 bits
-crate::build_enum!(
-    ResponseCode; 
-    Success = 0,            // No error
-    FormatError = 1,        // DNS packet could not be interpreted due to malformed a query
-    ServerFailure = 2,      // DNS packet could not be interpreted due to internal name server error
-    NameError = 3,          // Domain name does not exist, only from authoritative name servers
-    NotImplemented = 4,     // The requested functionality has not been implemented by the server
-    Refused = 5             // The name server refuses to respond for some reason
-);
-
-impl Default for ResponseCode {
-    fn default() -> Self {
-        Self::Success
-    }
-}
-
-crate::build_enum!(
-    RecordType;
-    A = 1,          // An Ipv4 address (u32)
-    NS = 2,         // Name server domain name
-    CNAME = 5,      // Canonical name of an alias
-    SOA = 6,        // Name server zone information
-    MX = 15,        // The domain name of a MailExchange address
-    AAAA = 28       // An Ipv6 address (u128)
-);
-
-impl Default for RecordType {
-    fn default() -> Self {
-        Self::A
-    }
-}
-
-crate::build_enum!(
-    RecordClass;
-    IN = 1
-);
-
-impl Default for RecordClass {
-    fn default() -> Self {
-        Self::IN
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum QuestionType {
-    RecordType(RecordType),
-    Unknown(u16)
-}
-
-impl Display for QuestionType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::RecordType(record_type) => write!(f, "{:?}", record_type),
-            Self::Unknown(_) => write!(f, "{:?}", self)
-        }
-    }
-}
-
-impl Default for QuestionType {
-    fn default() -> Self {
-        Self::RecordType(RecordType::A)
-    }
-}
-
-impl QuestionType {
-    fn to_u16(&self) -> u16 {
-        match self {
-            Self::RecordType(record_type) => RecordType::try_into(*record_type).unwrap(),
-            Self::Unknown(num) => *num
-        }
-    }
-
-    fn from_u16(num: u16) -> Self {
-        match num {
-            1 | 2 | 5 | 6 | 15 | 28 => Self::RecordType(RecordType::try_from(num).unwrap()),
-            _ => Self::Unknown(num)
-        }
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum QuestionClass {
-    RecordClass(RecordClass),
-    Unknown(u16)
-}
-
-impl Display for QuestionClass {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::RecordClass(record_class) => write!(f, "{:?}", record_class),
-            Self::Unknown(_) => write!(f, "{:?}", self)
-        }
-    }
-}
-
-impl Default for QuestionClass {
-    fn default() -> Self {
-        Self::RecordClass(RecordClass::IN)
-    }
-}
-
-impl QuestionClass {
-    fn to_u16(&self) -> u16 {
-        match self {
-            Self::RecordClass(record_class) => RecordClass::try_into(*record_class).unwrap(),
-            Self::Unknown(num) => *num
-        }
-    }
-
-    fn from_u16(num: u16) -> Self {
-        match num {
-            1 => Self::RecordClass(RecordClass::try_from(num).unwrap()),
-            _ => Self::Unknown(num)
         }
     }
 }
@@ -237,29 +279,20 @@ impl DnsHeader {
         | (TryInto::<u16>::try_into(self.operation_code).unwrap() << 11)
         | (conversions::bool_to_u16(self.response) << 15));
         let slice = [
-            conversions::u16_to_u8(self.id),                // id field
-            flag_bytes,                                         // header flags, 
-            conversions::u16_to_u8(self.question_count),    // question count field
-            conversions::u16_to_u8(self.answer_count),      // answer count field
-            conversions::u16_to_u8(self.authority_count),   // authority count field
-            conversions::u16_to_u8(self.additional_count)   // additional count field
+            conversions::u16_to_u8(self.id),
+            flag_bytes,
+            conversions::u16_to_u8(self.question_count),
+            conversions::u16_to_u8(self.answer_count),
+            conversions::u16_to_u8(self.authority_count),
+            conversions::u16_to_u8(self.additional_count)
         ].concat();
-        udp_packet.write_from_slice(&slice)?;
+        udp_packet.write_from_slice(&slice, 0)?;
         Ok(())
     }
 
     fn read_from_udp_packet(udp_packet: &mut udp_packet::UdpPacket) -> udp_packet::Result<Self> {
         let id = udp_packet.read_u16()?;
         let flag_bytes = udp_packet.read_u16()?;
-        // Flag bitfield format:
-        // 0b 1000 0000 0000 0000 (0x8000) response
-        // 0b 0111 1000 0000 0000 (0x7800) operation_code
-        // 0b 0000 0100 0000 0000 (0x0400) authoritative_answer
-        // 0b 0000 0010 0000 0000 (0x0200) truncated 
-        // 0b 0000 0001 0000 0000 (0x0100) recursion_desired
-        // 0b 0000 0000 1000 0000 (0x0080) recursion_available
-        // 0b 0000 0000 0111 0000 (0x0070) z
-        // 0b 0000 0000 0000 1111 (0x000f) response_code
         Ok(Self {
             id, 
             response: conversions::u16_to_bool((flag_bytes & 0x8000) >> 15), 
@@ -281,8 +314,8 @@ impl DnsHeader {
 #[derive(Debug, PartialEq)]
 pub struct DnsQuestion {
     pub name: udp_packet::DomainName,   // Domain name queried
-    pub question_type: QuestionType,    // 16 bits, specifies query type
-    pub question_class: QuestionClass   // 16 bits, specifies the class of the query, such as IN for the internet
+    pub question_type: CombinedType,    // 16 bits, specifies query type
+    pub question_class: CombinedClass   // 16 bits, specifies the class of the query, such as IN for the internet
 }
 
 impl Display for DnsQuestion {
@@ -303,20 +336,17 @@ impl Default for DnsQuestion {
 
 impl DnsQuestion {
     fn write_to_udp_packet(&self, udp_packet: &mut udp_packet::UdpPacket) -> udp_packet::Result<()> {
-        udp_packet.write_domain_name(&self.name)?;
-        if udp_packet.position + 4 >= udp_packet::UDP_PACKET_MAX_SIZE_BYTES {
-            panic!("Cannot write out of packet bounds.");
-        }
-        udp_packet.write_from_slice(&conversions::u16_to_u8(self.question_type.to_u16()))?; 
-        udp_packet.write_from_slice(&conversions::u16_to_u8(self.question_class.to_u16()))?;
+        udp_packet.write_domain_name(&self.name, 4)?;
+        udp_packet.write_from_slice(&conversions::u16_to_u8(self.question_type.try_into().unwrap()), 0)?; 
+        udp_packet.write_from_slice(&conversions::u16_to_u8(self.question_class.try_into().unwrap()), 0)?;
         Ok(())
     }
 
     fn read_from_udp_packet(udp_packet: &mut udp_packet::UdpPacket) -> udp_packet::Result<Self> {
         Ok(Self {
             name: udp_packet.read_domain_name(udp_packet.position)?,
-            question_type: QuestionType::from_u16(udp_packet.read_u16()?),
-            question_class: QuestionClass::from_u16(udp_packet.read_u16()?)
+            question_type: CombinedType::try_from(udp_packet.read_u16()?).unwrap(),
+            question_class: CombinedClass::try_from(udp_packet.read_u16()?).unwrap()
         })
     }
 }
@@ -333,21 +363,20 @@ pub struct DnsRecord {
 
 impl Display for DnsRecord {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}\t{:?}\t{:?}\t{}\t{}", self.name, self.record_class, self.record_type, self.ttl, self.data)
+        write!(f, "{}\t{}\t{}\t{}\t{}", self.name, self.record_class, self.record_type, self.ttl, self.data)
     }
 }
 
 impl DnsRecord {
     fn write_to_udp_packet(&self, udp_packet: &mut udp_packet::UdpPacket) -> udp_packet::Result<()> {
-        udp_packet.write_domain_name(&self.name)?;
-        if udp_packet.position + 10 + self.length as usize >= udp_packet::UDP_PACKET_MAX_SIZE_BYTES {
-            panic!("Cannot write out of packet bounds.");
-        }
-        udp_packet.write_from_slice(&conversions::u16_to_u8(self.record_type.try_into().unwrap()))?;
-        udp_packet.write_from_slice(&conversions::u16_to_u8(self.record_class.try_into().unwrap()))?;
-        udp_packet.write_from_slice(&conversions::u32_to_u8(self.ttl))?;
-        udp_packet.write_from_slice(&conversions::u16_to_u8(self.length))?;
-        udp_packet.write_from_slice(&self.data.as_bytes())?;
+        udp_packet.write_domain_name(&self.name, 10)?;
+        udp_packet.write_from_slice(&[
+            conversions::u16_to_u8(self.record_type.try_into().unwrap()).to_vec(), 
+            conversions::u16_to_u8(self.record_class.try_into().unwrap()).to_vec(),
+            conversions::u32_to_u8(self.ttl).to_vec(),
+            conversions::u16_to_u8(self.length).to_vec(),
+            self.data.as_bytes()
+        ].concat(), 0)?;
         Ok(())
     }
 
@@ -365,14 +394,7 @@ impl DnsRecord {
             RecordType::NS => ResponseData::NS(udp_packet.read_domain_name(udp_packet.position)?),
             RecordType::SOA => ResponseData::SOA(udp_packet.read_soa_data(udp_packet.position)?)
         };
-        Ok(Self {
-            name,
-            record_type,
-            record_class,
-            ttl,
-            length,
-            data
-        })
+        Ok(Self { name, record_type, record_class, ttl, length, data })
     }
 }
 
@@ -399,7 +421,9 @@ impl Default for DnsMessage {
 
 impl Display for DnsMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "HEADERS: (TODO)")?;
 
+        writeln!(f)?;
         writeln!(f, "QUESTIONS:")?;
         for question in self.questions.iter() {
             writeln!(f, "{}", question.to_string())?;
@@ -434,7 +458,7 @@ impl Display for DnsMessage {
 }
 
 impl DnsMessage {
-    pub fn write_to_udp_packet(&self, udp_packet: &mut udp_packet::UdpPacket)  -> udp_packet::Result<()> {
+    pub fn write_to_udp_packet(&self, udp_packet: &mut udp_packet::UdpPacket) -> udp_packet::Result<()> {
         self.header.write_to_udp_packet(udp_packet)?;
         for index in 0..self.header.question_count {
             self.questions[index as usize].write_to_udp_packet(udp_packet)?;
@@ -469,13 +493,7 @@ impl DnsMessage {
         for _ in 0..header.additional_count {
             additional.push(DnsRecord::read_from_udp_packet(udp_packet)?)
         };
-        Ok(Self {
-            header,
-            questions,
-            answers,
-            authorities,
-            additional
-        })
+        Ok(Self { header, questions, answers, authorities, additional })
     }
 }
 
@@ -545,9 +563,11 @@ mod tests {
         assert_eq!(OperationCode::default(), OperationCode::QUERY);
         assert_eq!(ResponseCode::default(), ResponseCode::Success);
         assert_eq!(RecordType::default(), RecordType::A);
-        assert_eq!(QuestionType::default(), QuestionType::RecordType(RecordType::A));
+        assert_eq!(QuestionType::default(), QuestionType::Any);
+        assert_eq!(CombinedType::default(), CombinedType::RecordType(RecordType::A));
         assert_eq!(RecordClass::default(), RecordClass::IN);
-        assert_eq!(QuestionClass::default(), QuestionClass::RecordClass(RecordClass::IN));
+        assert_eq!(QuestionClass::default(), QuestionClass::Any);
+        assert_eq!(CombinedClass::default(), CombinedClass::RecordClass(RecordClass::IN));
 
         // Structs
         assert_eq!(
@@ -572,8 +592,8 @@ mod tests {
             DnsQuestion::default(),
             DnsQuestion {
                 name: udp_packet::DomainName::from_str(TEST_DOMAIN).expect("Failed to construct DomainName."),
-                question_type: QuestionType::RecordType(RecordType::A),
-                question_class: QuestionClass::RecordClass(RecordClass::IN)
+                question_type: CombinedType::RecordType(RecordType::A),
+                question_class: CombinedClass::RecordClass(RecordClass::IN)
             }
         );
         assert_eq!(

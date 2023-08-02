@@ -272,8 +272,8 @@ impl UdpPacket {
         }
     }
 
-    pub fn write_from_slice(&mut self, slice: &[u8]) -> Result<()> {
-        if self.position + slice.len() >= UDP_PACKET_MAX_SIZE_BYTES {
+    pub fn write_from_slice(&mut self, slice: &[u8], margin: usize) -> Result<()> {
+        if self.position + slice.len() + margin >= UDP_PACKET_MAX_SIZE_BYTES {
             return Err(UdpPacketError::OutOfBounds { 
                 length: UDP_PACKET_MAX_SIZE_BYTES, 
                 index: self.position + slice.len()
@@ -296,8 +296,8 @@ impl UdpPacket {
         Ok(&self.buffer[start..(start + length)])
     }
 
-    pub fn write_domain_name(&mut self, domain_name: &DomainName) -> Result<()> {
-        self.write_from_slice(&domain_name.0)?;
+    pub fn write_domain_name(&mut self, domain_name: &DomainName, margin: usize) -> Result<()> {
+        self.write_from_slice(&domain_name.0, margin)?;
         Ok(())
     }
 
@@ -409,7 +409,7 @@ mod tests {
         ];
         let slice = [65, 89, 1, 0, 0, 2, 0, 0, 0, 0, 0, 0];
         let mut udp_packet = UdpPacket::new();
-        udp_packet.write_from_slice(&slice).expect("Failed to write to packet.");
+        udp_packet.write_from_slice(&slice, 0).expect("Failed to write to packet.");
         assert_eq!(udp_packet, UdpPacket {
             buffer: buffer,
             position: 12
@@ -448,7 +448,7 @@ mod tests {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
         ];
-        udp_packet.write_from_slice(&slice).expect("Failed to write to packet.");
+        udp_packet.write_from_slice(&slice, 0).expect("Failed to write to packet.");
         assert_eq!(udp_packet, UdpPacket {
             buffer: buffer,
             position: 24
@@ -458,7 +458,7 @@ mod tests {
     #[test]
     fn write_string_test() {
         let mut udp_packet: UdpPacket = UdpPacket::new();
-        udp_packet.write_domain_name(&DomainName::from_str(dns_message::TEST_DOMAIN).expect("Failed to construct DomainName.")).expect("Failed to write to packet.");
+        udp_packet.write_domain_name(&DomainName::from_str(dns_message::TEST_DOMAIN).expect("Failed to construct DomainName."), 0).expect("Failed to write to packet.");
         assert_eq!(udp_packet, UdpPacket {
             buffer: [
                 7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 0, 0,
