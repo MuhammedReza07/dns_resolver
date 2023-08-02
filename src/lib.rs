@@ -13,6 +13,10 @@ pub mod dns_message;
 /// applications.
 pub mod udp_packet;
 
+/// Module containing macros used for various purposes in other modules. The macros
+/// are primarily used to reduce repetitive boilerplate code and to facilitate code
+/// maintenance.
+pub mod macros {
 /// A macro used to construct an enum commonly used in the dns_message module,
 /// namely a public enum which can be converted to and from u16 and implementing the
 /// Default trait such that the first variant is returned when default() is called.
@@ -62,4 +66,5 @@ macro_rules! build_enum {
             }
         }
     };
+}
 }
