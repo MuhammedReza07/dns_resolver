@@ -1,5 +1,5 @@
 use crate::build_enum;
-use crate::conversions;
+use crate::conversions::*;
 use crate::udp_packet;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
@@ -32,12 +32,12 @@ build_enum!(
 
 build_enum!(
     ResponseCode;
-    Success = 0,            // No error
-    FormatError = 1,        // DNS packet could not be interpreted due to malformed a query
-    ServerFailure = 2,      // DNS packet could not be interpreted due to internal name server error
-    NameError = 3,          // Domain name does not exist, only from authoritative name servers
-    NotImplemented = 4,     // The requested functionality has not been implemented by the server
-    Refused = 5             // The name server refuses to respond for some reason
+    NOERROR = 0,            // No error
+    FORMATERROR = 1,        // DNS packet could not be interpreted due to malformed a query
+    SERVERFAILURE = 2,      // DNS packet could not be interpreted due to internal name server error
+    NAMEERROR = 3,          // Domain name does not exist, only from authoritative name servers
+    NOTIMPLEMENTED = 4,     // The requested functionality has not been implemented by the server
+    REFUSED = 5             // The name server refuses to respond for some reason
 );
 
 build_enum!(
@@ -57,12 +57,12 @@ build_enum!(
 
 build_enum!(
     QuestionType;
-    Any = 255
+    ANY = 255
 );
 
 build_enum!(
     QuestionClass;
-    Any = 255
+    ANY = 255
 );
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -92,7 +92,8 @@ impl FromStr for CombinedType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match QuestionType::from_str(s) {
             Ok(qtype) => Ok(CombinedType::QuestionType(qtype)),
-            Err(_) => match RecordType::from_str(s) {
+            Err(_) => 
+            match RecordType::from_str(s) {
                 Ok(rtype) => Ok(CombinedType::RecordType(rtype)),
                 Err(_) => Err(format!("Encountered invalid variant '{}'.", s))
             }
@@ -186,40 +187,131 @@ impl TryInto<u16> for CombinedClass {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum ResponseData {
-    A(net::Ipv4Addr),
-    AAAA(net::Ipv6Addr),
-    CNAME(udp_packet::DomainName),
-    SOA(udp_packet::SOAData),
-    MX(udp_packet::MXData),
-    NS(udp_packet::DomainName),
+pub enum RecordData {
+    A {
+        ipv4_address: net::Ipv4Addr,
+    },
+    AAAA {
+        ipv6_address: net::Ipv6Addr,
+    },
+    CNAME {
+        canonical_name: udp_packet::DomainName,
+    },
+    SOA {
+        domain_name: udp_packet::DomainName,
+        mailbox_address: udp_packet::DomainName,
+        serial: u32,
+        refresh: u32,
+        retry: u32,
+        expire: u32,
+        minimum: u32,
+    },
+    MX {
+        preference: u16,
+        exchange_address: udp_packet::DomainName,
+    },
+    NS {
+        domain_name: udp_packet::DomainName,
+    },
     Unknown
 }
 
-impl ResponseData {
-    fn as_bytes(&self) -> Vec<u8> {
+impl Display for RecordData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::A(addr) => addr.octets().to_vec(),
-            Self::AAAA(addr) => addr.octets().to_vec(),
-            Self::CNAME(name) => name.0.to_vec(),
-            Self::MX(data) => data.as_bytes(),
-            Self::NS(name) => name.0.to_vec(),
-            Self::SOA(data) => data.as_bytes(),
-            Self::Unknown => "Unknown/unimplemented".as_bytes().to_vec()
+            Self::A {
+                ipv4_address,
+            } => ipv4_address.fmt(f),
+            Self::AAAA {
+                ipv6_address,
+            } => ipv6_address.fmt(f),
+            Self::CNAME {
+                canonical_name,
+            } => canonical_name.fmt(f),
+            Self::MX {
+                preference,
+                exchange_address,
+            } => write!(f, "{}\t{}", preference, exchange_address),
+            Self::NS {
+                domain_name,
+            } => domain_name.fmt(f),
+            Self::SOA {
+                domain_name,
+                mailbox_address,
+                serial,
+                refresh,
+                retry,
+                expire,
+                minimum,
+            } => write!(f, "{}\t{}\t{}\t{}\t{}\t{}\t{}", domain_name, mailbox_address, serial, refresh, retry, expire, minimum),
+            Self::Unknown => write!(f, "Unknown/unimplemented")
         }
     }
 }
 
-impl Display for ResponseData {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+
+impl RecordData {
+    fn as_bytes(&self) -> Vec<u8> {
         match self {
-            Self::A(addr) => addr.fmt(f),
-            Self::AAAA(addr) => addr.fmt(f),
-            Self::CNAME(name) => name.fmt(f),
-            Self::MX(data) => data.fmt(f),
-            Self::NS(data) => data.fmt(f),
-            Self::SOA(info) => info.fmt(f),
-            Self::Unknown => write!(f, "Unknown/unimplemented")
+            Self::A {
+                ipv4_address,
+            } => ipv4_address.octets().to_vec(),
+            Self::AAAA {
+                ipv6_address,
+            } => ipv6_address.octets().to_vec(),
+            Self::CNAME {
+                canonical_name,
+            } => canonical_name.bytes.to_vec(),
+            Self::MX {
+                preference,
+                exchange_address,
+            } => [
+                u16_to_u8(*preference).to_vec(), 
+                (*exchange_address.bytes).to_vec()
+                ].concat(),
+            Self::NS {
+                domain_name,
+            } => domain_name.bytes.to_vec(),
+            Self::SOA {
+                domain_name,
+                mailbox_address,
+                serial,
+                refresh,
+                retry,
+                expire,
+                minimum,
+            } => [
+                domain_name.bytes.to_vec(),
+                mailbox_address.bytes.to_vec(),
+                [serial, refresh, retry, expire, minimum]
+                .iter()
+                .map(|num| u32_to_u8(**num))
+                .collect::<Vec<[u8; 4]>>()
+                .concat()
+                ].concat(),
+            Self::Unknown => "Unknown/unimplemented".as_bytes().to_vec()
+        }
+    }
+
+    pub fn read_from_udp_packet(udp_packet: &mut udp_packet::UdpPacket, record_type: RecordType) -> udp_packet::Result<Self> {
+        match record_type {
+            RecordType::A => Ok(Self::A { ipv4_address: net::Ipv4Addr::from(udp_packet.read_u32()?) }),
+            RecordType::AAAA => Ok(Self::AAAA { ipv6_address: net::Ipv6Addr::from(udp_packet.read_u128()?) }),
+            RecordType::CNAME => Ok(Self::CNAME { canonical_name: udp_packet.read_domain_name()? }),
+            RecordType::MX => Ok(Self::MX { 
+                preference: udp_packet.read_u16()?, 
+                exchange_address: udp_packet.read_domain_name()?
+            }),
+            RecordType::NS => Ok(Self::NS { domain_name: udp_packet.read_domain_name()? }),
+            RecordType::SOA => Ok(Self::SOA { 
+                domain_name: udp_packet.read_domain_name()?, 
+                mailbox_address: udp_packet.read_domain_name()?, 
+                serial: udp_packet.read_u32()?, 
+                refresh: udp_packet.read_u32()?, 
+                retry: udp_packet.read_u32()?, 
+                expire: udp_packet.read_u32()?, 
+                minimum: udp_packet.read_u32()? 
+            })
         }
     }
 }
@@ -265,26 +357,57 @@ impl Default for DnsHeader {
     }
 }
 
+// TODO: Write the z byte in a correct format for DNSSEC.
+impl Display for DnsHeader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "opcode: {}, status: {}, id: {}", 
+            self.operation_code,
+            self.response_code,
+            self.id
+        )?;
+        write!(f, "flags:")?;
+        if self.response {
+            write!(f, " qr")?;
+        } if self.authoritative_answer {
+            write!(f, " aa")?;
+        }if self.truncated {
+            write!(f, " tc")?;
+        } if self.recursion_desired {
+            write!(f, " rd")?;
+        } if self.recursion_available {
+            write!(f, " ra")?;
+        } if self.z != 0 {
+            write!(f, " z")?;
+        }
+        writeln!(f, ", QUESTION: {}, ANSWER: {}, AUTHORITY: {}, ADDITIONAL: {}",
+            self.question_count,
+            self.answer_count,
+            self.authority_count,
+            self.additional_count
+        )
+    }
+}
+
 impl DnsHeader {
     fn write_to_udp_packet(&self, udp_packet: &mut udp_packet::UdpPacket) -> udp_packet::Result<()> {
         if udp_packet.position >= DNS_HEADER_LENGTH_BYTES {
             panic!("DNS header can only be written within bytes 0-11 (DNS_HEADER_LENGTH_BYTES - 1) of DnsMessage.buffer.")
         }
-        let flag_bytes = conversions::u16_to_u8(TryInto::<u16>::try_into(self.response_code).unwrap()
+        let flag_bytes = u16_to_u8(TryInto::<u16>::try_into(self.response_code).unwrap()
         | (self.z << 4)
-        | (conversions::bool_to_u16(self.recursion_available) << 7)
-        | (conversions::bool_to_u16(self.recursion_desired) << 8)
-        | (conversions::bool_to_u16(self.truncated) << 9)
-        | (conversions::bool_to_u16(self.authoritative_answer) << 10)
+        | (bool_to_u16(self.recursion_available) << 7)
+        | (bool_to_u16(self.recursion_desired) << 8)
+        | (bool_to_u16(self.truncated) << 9)
+        | (bool_to_u16(self.authoritative_answer) << 10)
         | (TryInto::<u16>::try_into(self.operation_code).unwrap() << 11)
-        | (conversions::bool_to_u16(self.response) << 15));
+        | (bool_to_u16(self.response) << 15));
         let slice = [
-            conversions::u16_to_u8(self.id),
+            u16_to_u8(self.id),
             flag_bytes,
-            conversions::u16_to_u8(self.question_count),
-            conversions::u16_to_u8(self.answer_count),
-            conversions::u16_to_u8(self.authority_count),
-            conversions::u16_to_u8(self.additional_count)
+            u16_to_u8(self.question_count),
+            u16_to_u8(self.answer_count),
+            u16_to_u8(self.authority_count),
+            u16_to_u8(self.additional_count)
         ].concat();
         udp_packet.write_from_slice(&slice, 0)?;
         Ok(())
@@ -295,12 +418,12 @@ impl DnsHeader {
         let flag_bytes = udp_packet.read_u16()?;
         Ok(Self {
             id, 
-            response: conversions::u16_to_bool((flag_bytes & 0x8000) >> 15), 
+            response: u16_to_bool((flag_bytes & 0x8000) >> 15), 
             operation_code: OperationCode::try_from((flag_bytes & 0x7800) >> 11).unwrap(), 
-            authoritative_answer: conversions::u16_to_bool((flag_bytes & 0x400) >> 10), 
-            truncated: conversions::u16_to_bool((flag_bytes & 0x200) >> 9), 
-            recursion_desired: conversions::u16_to_bool((flag_bytes & 0x100) >> 8), 
-            recursion_available: conversions::u16_to_bool((flag_bytes & 0x80) >> 7), 
+            authoritative_answer: u16_to_bool((flag_bytes & 0x400) >> 10), 
+            truncated: u16_to_bool((flag_bytes & 0x200) >> 9), 
+            recursion_desired: u16_to_bool((flag_bytes & 0x100) >> 8), 
+            recursion_available: u16_to_bool((flag_bytes & 0x80) >> 7), 
             z: (flag_bytes & 0x70) >> 4, 
             response_code: ResponseCode::try_from(flag_bytes & 0xf).unwrap(), 
             question_count: udp_packet.read_u16()?, 
@@ -337,14 +460,14 @@ impl Default for DnsQuestion {
 impl DnsQuestion {
     fn write_to_udp_packet(&self, udp_packet: &mut udp_packet::UdpPacket) -> udp_packet::Result<()> {
         udp_packet.write_domain_name(&self.name, 4)?;
-        udp_packet.write_from_slice(&conversions::u16_to_u8(self.question_type.try_into().unwrap()), 0)?; 
-        udp_packet.write_from_slice(&conversions::u16_to_u8(self.question_class.try_into().unwrap()), 0)?;
+        udp_packet.write_from_slice(&u16_to_u8(self.question_type.try_into().unwrap()), 0)?; 
+        udp_packet.write_from_slice(&u16_to_u8(self.question_class.try_into().unwrap()), 0)?;
         Ok(())
     }
 
     fn read_from_udp_packet(udp_packet: &mut udp_packet::UdpPacket) -> udp_packet::Result<Self> {
         Ok(Self {
-            name: udp_packet.read_domain_name(udp_packet.position)?,
+            name: udp_packet.read_domain_name()?,
             question_type: CombinedType::try_from(udp_packet.read_u16()?).unwrap(),
             question_class: CombinedClass::try_from(udp_packet.read_u16()?).unwrap()
         })
@@ -358,7 +481,7 @@ pub struct DnsRecord {
     pub record_class: RecordClass,      // 16 bits, specifies the RR's class and thus the class of the contents of RDATA
     pub ttl: u32,                       // 32 bits, Specifies how long (in seconds) the RR can be cached
     pub length: u16,                    // 16 bits, Specifies the length (in bytes) of the contents of RDATA
-    pub data: ResponseData              // The RDATA field, contains the name server's response data
+    pub data: RecordData                // The RDATA field, contains the name server's response data
 }
 
 impl Display for DnsRecord {
@@ -371,29 +494,22 @@ impl DnsRecord {
     fn write_to_udp_packet(&self, udp_packet: &mut udp_packet::UdpPacket) -> udp_packet::Result<()> {
         udp_packet.write_domain_name(&self.name, 10)?;
         udp_packet.write_from_slice(&[
-            conversions::u16_to_u8(self.record_type.try_into().unwrap()).to_vec(), 
-            conversions::u16_to_u8(self.record_class.try_into().unwrap()).to_vec(),
-            conversions::u32_to_u8(self.ttl).to_vec(),
-            conversions::u16_to_u8(self.length).to_vec(),
+            u16_to_u8(self.record_type.try_into().unwrap()).to_vec(), 
+            u16_to_u8(self.record_class.try_into().unwrap()).to_vec(),
+            u32_to_u8(self.ttl).to_vec(),
+            u16_to_u8(self.length).to_vec(),
             self.data.as_bytes()
         ].concat(), 0)?;
         Ok(())
     }
 
     fn read_from_udp_packet(udp_packet: &mut udp_packet::UdpPacket) -> udp_packet::Result<Self> {
-        let name = udp_packet.read_domain_name(udp_packet.position)?;
+        let name = udp_packet.read_domain_name()?;
         let record_type = RecordType::try_from(udp_packet.read_u16()?).unwrap();
         let record_class = RecordClass::try_from(udp_packet.read_u16()?).unwrap();
         let ttl = udp_packet.read_u32()?;
         let length =  udp_packet.read_u16()?;
-        let data = match record_type {
-            RecordType::A => ResponseData::A(net::Ipv4Addr::from(udp_packet.read_u32()?)),
-            RecordType::AAAA => ResponseData::AAAA(net::Ipv6Addr::from(udp_packet.read_u128()?)),
-            RecordType::CNAME => ResponseData::CNAME(udp_packet.read_domain_name(udp_packet.position)?),
-            RecordType::MX => ResponseData::MX(udp_packet.read_mx_data()?),
-            RecordType::NS => ResponseData::NS(udp_packet.read_domain_name(udp_packet.position)?),
-            RecordType::SOA => ResponseData::SOA(udp_packet.read_soa_data(udp_packet.position)?)
-        };
+        let data = RecordData::read_from_udp_packet(udp_packet, record_type)?;
         Ok(Self { name, record_type, record_class, ttl, length, data })
     }
 }
@@ -421,7 +537,8 @@ impl Default for DnsMessage {
 
 impl Display for DnsMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "HEADERS: (TODO)")?;
+        writeln!(f, "HEADER:")?;
+        write!(f, "{}", self.header)?;
 
         writeln!(f)?;
         writeln!(f, "QUESTIONS:")?;
@@ -561,12 +678,12 @@ mod tests {
     fn default_trait_test() {
         // Enumerations
         assert_eq!(OperationCode::default(), OperationCode::QUERY);
-        assert_eq!(ResponseCode::default(), ResponseCode::Success);
+        assert_eq!(ResponseCode::default(), ResponseCode::NOERROR);
         assert_eq!(RecordType::default(), RecordType::A);
-        assert_eq!(QuestionType::default(), QuestionType::Any);
+        assert_eq!(QuestionType::default(), QuestionType::ANY);
         assert_eq!(CombinedType::default(), CombinedType::RecordType(RecordType::A));
         assert_eq!(RecordClass::default(), RecordClass::IN);
-        assert_eq!(QuestionClass::default(), QuestionClass::Any);
+        assert_eq!(QuestionClass::default(), QuestionClass::ANY);
         assert_eq!(CombinedClass::default(), CombinedClass::RecordClass(RecordClass::IN));
 
         // Structs
@@ -581,7 +698,7 @@ mod tests {
                 recursion_desired: RECURSION_DESIRED,
                 recursion_available: false,
                 z: 0,
-                response_code: ResponseCode::Success,
+                response_code: ResponseCode::NOERROR,
                 question_count: QUESTION_COUNT,
                 answer_count: 0,
                 authority_count: 0,

@@ -25,7 +25,7 @@ pub mod macros {
 /// which means that no named or unnamed parameters can be included in a variant.
 #[macro_export]
 macro_rules! build_enum {
-    ($name: ident; $($variant: ident = $value: expr),*$(,)?) => {
+    ($name:ident; $($variant:ident = $value:expr),*$(,)?) => {
         #[derive(Clone, Copy, Debug, Default, PartialEq)]
         pub enum $name {
             #[default]

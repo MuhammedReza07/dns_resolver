@@ -1,4 +1,3 @@
-use crate::conversions;
 use std::fmt::Display;
 use std::str::FromStr;
 use std::net;
@@ -77,67 +76,17 @@ impl std::fmt::Display for UdpPacketError {
 impl std::error::Error for UdpPacketError {}
 
 #[derive(Debug, PartialEq)]
-pub struct MXData {
-    preference: u16,
-    exchange: DomainName
+pub struct DomainName {
+    pub bytes: Vec<u8>
 }
-
-impl Display for MXData {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}\t{}", self.preference, self.exchange)
-    }
-}
-
-impl MXData {
-    pub fn as_bytes(&self) -> Vec<u8> {
-        [conversions::u16_to_u8(self.preference).to_vec(), self.exchange.0.to_vec()].concat()
-    }
-}
-
-/// Struct for the SOA RR's data.
-#[derive(Debug, PartialEq)]
-pub struct SOAData {
-    name: DomainName,
-    mailbox: DomainName,
-    serial: u32,
-    refresh: u32,
-    retry: u32,
-    expire: u32,
-    minimum: u32
-}
-
-impl Display for SOAData {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}\t{}\t{}\t{}\t{}\t{}\t{}", self.name, self.mailbox, self.serial, self.refresh, self.retry, self.expire, self.minimum)
-    }
-}
-
-impl SOAData {
-    pub fn as_bytes(&self) -> Vec<u8> {
-        [
-            self.name.0.to_vec(),
-            self.mailbox.0.to_vec(),
-            [
-                conversions::u32_to_u8(self.serial),
-                conversions::u32_to_u8(self.refresh),
-                conversions::u32_to_u8(self.retry),
-                conversions::u32_to_u8(self.expire),
-                conversions::u32_to_u8(self.minimum),
-            ].concat().to_vec()
-        ].concat()
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub struct DomainName(pub Vec<u8>);
 
 impl Display for DomainName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut labels: Vec<&[u8]> = Vec::new();
         let mut position = 0;
-        while self.0[position] != 0x00 {
-            let length = self.0[position] as usize;
-            labels.push(&self.0[(position + 1 )..(position + 1 + length)]);
+        while self.bytes[position] != 0x00 {
+            let length = self.bytes[position] as usize;
+            labels.push(&self.bytes[(position + 1 )..(position + 1 + length)]);
             labels.push(&[0x2e]);
             position += length + 1;
         }
@@ -169,7 +118,7 @@ impl FromStr for DomainName {
             domain_name.push([[label.len() as u8].as_slice(), label.as_bytes()].concat())
         }
         domain_name.push(vec![0]); // Adding the zero byte, \0.
-        Ok(DomainName(domain_name.concat()))
+        Ok(Self { bytes: domain_name.concat() })
     }
 }
 
@@ -286,26 +235,26 @@ impl UdpPacket {
         Ok(())
     }
 
-    pub fn read_to_slice(&self, start: usize, length: usize) -> Result<&[u8]> {
-        if start + length >= UDP_PACKET_MAX_SIZE_BYTES {
+    pub fn read_to_slice(&self, length: usize) -> Result<&[u8]> {
+        if self.position + length >= UDP_PACKET_MAX_SIZE_BYTES {
             return Err(UdpPacketError::OutOfBounds { 
                 length: UDP_PACKET_MAX_SIZE_BYTES, 
-                index: start + length
+                index: self.position + length
             })
         }
-        Ok(&self.buffer[start..(start + length)])
+        Ok(&self.buffer[self.position..(self.position + length)])
     }
 
     pub fn write_domain_name(&mut self, domain_name: &DomainName, margin: usize) -> Result<()> {
-        self.write_from_slice(&domain_name.0, margin)?;
+        self.write_from_slice(&domain_name.bytes, margin)?;
         Ok(())
     }
 
-    pub fn read_domain_name(&mut self, start: usize) -> Result<DomainName> {
+    pub fn read_domain_name(&mut self) -> Result<DomainName> {
         let mut values: Vec<&[u8]> = Vec::new();
         let mut num_jumps = 0;
         let mut has_jumped = false;
-        let mut position = start;
+        let mut position = self.position;
         let mut num_bytes_read_before_jump = 0;
         while self.buffer[position] != 0x00 {
             if num_jumps > MAX_JUMPS {
@@ -324,7 +273,7 @@ impl UdpPacket {
                         source: Malformation::LabelTooLong
                     })
                 }
-                values.push(&self.read_to_slice(position, length)?);
+                values.push(&self.read_to_slice(length)?);
                 position += length;
                 if !has_jumped {
                     num_bytes_read_before_jump += length
@@ -344,26 +293,7 @@ impl UdpPacket {
             true => self.position += 2 + num_bytes_read_before_jump,
             false => self.position += result.len()
         };
-        Ok(DomainName(result))
-    }
-
-    pub fn read_soa_data(&mut self, start: usize) -> Result<SOAData> {
-        Ok(SOAData { 
-            name: self.read_domain_name(start)?, 
-            mailbox: self.read_domain_name(self.position)?, 
-            serial: self.read_u32()?, 
-            refresh: self.read_u32()?, 
-            retry: self.read_u32()?, 
-            expire: self.read_u32()?, 
-            minimum:self.read_u32()? 
-        })
-    }
-
-    pub fn read_mx_data(&mut self) -> Result<MXData> {
-        Ok(MXData { 
-            preference: self.read_u16()?, 
-            exchange: self.read_domain_name(self.position)?
-        })
+        Ok(DomainName { bytes: result })
     }
 }
 
@@ -497,5 +427,4 @@ mod tests {
             position: 13
         })
     }
-
 }
