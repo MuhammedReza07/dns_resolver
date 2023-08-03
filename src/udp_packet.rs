@@ -133,11 +133,10 @@ impl Display for DomainName {
         while self.bytes[position] != 0x00 {
             let length = self.bytes[position] as usize;
             labels.push(&self.bytes[(position + 1)..(position + 1 + length)]);
-            labels.push(&[0x2e]);
+            labels.push(b".");
             position += length + 1;
         }
-        labels.pop();
-        let string = String::from_utf8(self.bytes.to_vec())
+        let string = String::from_utf8(labels.concat())
         .map_err(|error| UdpPacketError::FromUtf8 { 
             bytes: self.bytes.to_vec(), 
             source: error 

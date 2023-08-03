@@ -64,6 +64,7 @@ fn main() -> udp_packet::Result<()> {
 
     let decoded_message = dns_message::DnsMessage::read_from_udp_packet(&mut response_packet)?;
     println!("{}", decoded_message);
+    
     if ACTIVATE_LOGGING {
         std::fs::write("./logs.txt", format!("{:#?}", decoded_message))
         .expect("Failed to log raw output.");
