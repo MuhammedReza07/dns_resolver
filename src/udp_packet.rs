@@ -11,6 +11,7 @@ const MAX_JUMPS: usize = 10;
 // TODO: Add functionality to verify that CharacterString:s comply to the constraints set by the standards.
 // May require the use of a struct to represent the CharacterString as a struct.
 
+/// Specialised result type for UdpPacket operations.
 pub type Result<T> = result::Result<T, UdpPacketError>;
 
 // The length of a domain name is given by length = [the dot-separated name as a string].len() + 2
@@ -21,6 +22,9 @@ pub type Result<T> = result::Result<T, UdpPacketError>;
 // [label_1.len()].len() + [label_1[label_2.len()]label_2 ... [label_n.len()]label_n].len() + \0.len()
 // = 1 + label_1.label_2 ... .label_n.len() + 1
 // = [the dot-separated name as a string].len() + 2
+
+// TODO: Make the messages display via the Display trait's fmt() function instead of the Debug trait.
+// Or just make the error messages cleaner, the method does not really matter.
 
 #[derive(Debug)]
 pub enum Malformation {
@@ -96,7 +100,13 @@ pub struct CharacterString {
 
 impl Display for CharacterString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", String::from_utf8(self.bytes.to_vec()).expect("Failed to convert CharacterString to String."))
+        let string = String::from_utf8(self.bytes.to_vec())
+        .map_err(|error| UdpPacketError::FromUtf8 { 
+            bytes: self.bytes.to_vec(), 
+            source: error 
+        })
+        .map_err(|_| std::fmt::Error)?;
+        write!(f, "{}", string)
     }
 }
 
@@ -111,7 +121,7 @@ impl FromStr for CharacterString {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct DomainName {
     pub bytes: Vec<u8>
 }
@@ -127,7 +137,13 @@ impl Display for DomainName {
             position += length + 1;
         }
         labels.pop();
-        write!(f, "{}", String::from_utf8(labels.concat()).expect("Failed to convert DomainName to String."))
+        let string = String::from_utf8(self.bytes.to_vec())
+        .map_err(|error| UdpPacketError::FromUtf8 { 
+            bytes: self.bytes.to_vec(), 
+            source: error 
+        })
+        .map_err(|_| std::fmt::Error)?;
+        write!(f, "{}", string)
     }
 }
 

@@ -16,7 +16,36 @@ pub mod udp_packet;
 /// Module containing macros used for various purposes in other modules. The macros
 /// are primarily used to reduce repetitive boilerplate code and to facilitate code
 /// maintenance.
-pub mod macros {
+pub mod macros { 
+/// Error type for the build_enum! macro.
+#[derive(Debug)]
+pub enum BuildEnumError {
+    /// Encountered an invalid u16 during conversion to variant.
+    InvalidU16 {
+        uint_16: u16            // The integer that caused the error.
+    },
+
+    /// Encopuntered an invalid &str during conversion to variant.
+    InvalidStrVariant {
+        variant_str: String     // The variant &str which caused the error.
+    }
+}
+
+impl std::fmt::Display for BuildEnumError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidStrVariant { 
+                variant_str
+             } => write!(f, "encountered invalid str '{}' while converting to variant", variant_str),
+             Self::InvalidU16 { 
+                uint_16
+             } => write!(f, "encountered invalid u16 {} while converting to variant", uint_16)
+        }
+    }
+}
+
+impl std::error::Error for BuildEnumError {}
+
 /// A macro used to construct an enum commonly used in the dns_message module,
 /// namely a public enum which can be converted to and from u16 and implementing the
 /// Default trait such that the first variant is returned when default() is called.
@@ -32,17 +61,19 @@ macro_rules! build_enum {
             $($variant,)*
         }
         impl std::convert::TryFrom<u16> for $name {
-            type Error = String;
+            type Error = crate::macros::BuildEnumError;
 
             fn try_from(value: u16) -> Result<Self, Self::Error> { 
                 match value {
                     $($value => Ok(Self::$variant),)*
-                    _ => Err(format!("Invalid u16 ({}).", value))
+                    _ => Err(crate::macros::BuildEnumError::InvalidU16 {
+                        uint_16: value,
+                    })
                 }
             }
         }
         impl std::convert::TryInto<u16> for $name {
-            type Error = String;
+            type Error = ();
 
             fn try_into(self) -> Result<u16, Self::Error> { 
                 match self {
@@ -56,12 +87,14 @@ macro_rules! build_enum {
             }
         }
         impl std::str::FromStr for $name {
-            type Err = String;
+            type Err = crate::macros::BuildEnumError;
         
             fn from_str(s: &str) -> Result<Self, Self::Err> {
                 match s {
                     $(stringify!($variant) => Ok(Self::$variant),)*
-                    _ => Err(format!("Encountered invalid variant '{}'.", s))
+                    _ => Err(crate::macros::BuildEnumError::InvalidStrVariant {
+                        variant_str: String::from(s),
+                    })
                 }
             }
         }

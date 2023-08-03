@@ -117,7 +117,7 @@ impl TryFrom<u16> for CombinedType {
 }
 
 impl TryInto<u16> for CombinedType {
-    type Error = String;
+    type Error = ();
 
     fn try_into(self) -> Result<u16, Self::Error> {
         match self {
@@ -177,7 +177,7 @@ impl TryFrom<u16> for CombinedClass {
 }
 
 impl TryInto<u16> for CombinedClass {
-    type Error = String;
+    type Error = ();
 
     fn try_into(self) -> Result<u16, Self::Error> {
         match self {

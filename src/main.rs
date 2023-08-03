@@ -7,8 +7,8 @@ const LOCAL_ADDRESS: (net::Ipv4Addr, u16) = (net::Ipv4Addr::UNSPECIFIED, 0);
 const NAME_SERVER_ADDRESS: (&str, u16) = ("8.8.8.8", 53);
 const ACTIVATE_LOGGING: bool = true;
 
-// Grammar: <Operation code> <Question class> <Question type> <Domain name>
-
+// Grammar: <Operation code> <Question class> <Question type> <Domain name>.
+// TODO: Set the flags via CLI, instead of hardcoded constants.
 #[derive(Debug)]
 struct Arguments {
     operation_code: dns_message::OperationCode,
