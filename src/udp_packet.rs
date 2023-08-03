@@ -151,7 +151,9 @@ impl FromStr for DomainName {
 
     fn from_str(s: &str) -> result::Result<Self, Self::Err> {
         let mut s = String::from(s);
-        s.pop();
+        if s.ends_with(".") {
+            s.pop();
+        }
         if s.len() + 2 > NAME_MAX_LENGTH_BYTES {
             return Err(UdpPacketError::MalformedDomainName {
                 domain_name: s.to_string(),
