@@ -86,7 +86,7 @@ impl Display for DomainName {
         let mut position = 0;
         while self.bytes[position] != 0x00 {
             let length = self.bytes[position] as usize;
-            labels.push(&self.bytes[(position + 1 )..(position + 1 + length)]);
+            labels.push(&self.bytes[(position + 1)..(position + 1 + length)]);
             labels.push(&[0x2e]);
             position += length + 1;
         }
@@ -235,14 +235,14 @@ impl UdpPacket {
         Ok(())
     }
 
-    pub fn read_to_slice(&self, length: usize) -> Result<&[u8]> {
-        if self.position + length >= UDP_PACKET_MAX_SIZE_BYTES {
+    pub fn read_to_slice(&self, start: usize, length: usize) -> Result<&[u8]> {
+        if start + length >= UDP_PACKET_MAX_SIZE_BYTES {
             return Err(UdpPacketError::OutOfBounds { 
                 length: UDP_PACKET_MAX_SIZE_BYTES, 
-                index: self.position + length
+                index: start + length
             })
         }
-        Ok(&self.buffer[self.position..(self.position + length)])
+        Ok(&self.buffer[start..(start + length)])
     }
 
     pub fn write_domain_name(&mut self, domain_name: &DomainName, margin: usize) -> Result<()> {
@@ -273,7 +273,7 @@ impl UdpPacket {
                         source: Malformation::LabelTooLong
                     })
                 }
-                values.push(&self.read_to_slice(length)?);
+                values.push(&self.read_to_slice(position, length)?);
                 position += length;
                 if !has_jumped {
                     num_bytes_read_before_jump += length
