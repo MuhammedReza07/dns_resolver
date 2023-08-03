@@ -8,6 +8,9 @@ const NAME_MAX_LENGTH_BYTES: usize = 255;
 const LABEL_MAX_LENGTH_BYTES: usize = 63;
 const MAX_JUMPS: usize = 10;
 
+// TODO: Add functionality to verify that CharacterString:s comply to the constraints set by the standards.
+// May require the use of a struct to represent the CharacterString as a struct.
+
 pub type Result<T> = result::Result<T, UdpPacketError>;
 
 // The length of a domain name is given by length = [the dot-separated name as a string].len() + 2
@@ -49,6 +52,12 @@ pub enum UdpPacketError {
     OutOfBounds {
         length: usize,          // The length of the buffer.
         index: usize            // The erroneous index.
+    },
+
+    /// An error occurred while converting bytes, e.g. in a DomainName, to a UTF-8 String.
+    FromUtf8 {
+        bytes: Vec<u8>,                     // The erroneous bytes.
+        source: std::string::FromUtf8Error  // The underlying error.
     }
 }
 
@@ -58,22 +67,49 @@ impl std::fmt::Display for UdpPacketError {
             UdpPacketError::MalformedDomainName { 
                 domain_name, 
                 description, 
-                source 
+                source, 
             } => write!(f, "an error occurred while processing {}, source: {:?}, description: {}", domain_name, source, description),
             UdpPacketError::MaxJumpsExceeded => write!(f, "maximum number of jumps while exceeded while reading a compressed domain name"),
             UdpPacketError::NetworkIo { 
                 description, 
-                source 
+                source, 
             } => write!(f, "an error occurred while performing network operations, description: {}, source: {:?}", description, source),
             UdpPacketError::OutOfBounds { 
                 length, 
-                index 
-            } => write!(f, "attempted to access a buffer of length {} at index {}", length, index)
+                index, 
+            } => write!(f, "attempted to access a buffer of length {} at index {}", length, index),
+            UdpPacketError::FromUtf8 { 
+                bytes, 
+                source, 
+            } => write!(f, "Failed to convert byte sequence {:?} to a utf-8 string, source: {}", bytes, source)
         }
     }
 }
 
 impl std::error::Error for UdpPacketError {}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct CharacterString {
+    pub length: usize,
+    pub bytes: Vec<u8>
+}
+
+impl Display for CharacterString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", String::from_utf8(self.bytes.to_vec()).expect("Failed to convert CharacterString to String."))
+    }
+}
+
+impl FromStr for CharacterString {
+    type Err = ();
+
+    fn from_str(s: &str) -> result::Result<Self, Self::Err> {
+        Ok(Self {
+            length: s.len(),
+            bytes: s.as_bytes().to_vec()
+        })
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub struct DomainName {
@@ -221,7 +257,11 @@ impl UdpPacket {
         }
     }
 
-    pub fn write_from_slice(&mut self, slice: &[u8], margin: usize) -> Result<()> {
+    pub fn write_from_slice(&mut self, slice: &[u8], margin: Option<usize>) -> Result<()> {
+        let margin = match margin {
+            Some(value) => value,
+            None => 0
+        };
         if self.position + slice.len() + margin >= UDP_PACKET_MAX_SIZE_BYTES {
             return Err(UdpPacketError::OutOfBounds { 
                 length: UDP_PACKET_MAX_SIZE_BYTES, 
@@ -245,7 +285,7 @@ impl UdpPacket {
         Ok(&self.buffer[start..(start + length)])
     }
 
-    pub fn write_domain_name(&mut self, domain_name: &DomainName, margin: usize) -> Result<()> {
+    pub fn write_domain_name(&mut self, domain_name: &DomainName, margin: Option<usize>) -> Result<()> {
         self.write_from_slice(&domain_name.bytes, margin)?;
         Ok(())
     }
@@ -273,7 +313,7 @@ impl UdpPacket {
                         source: Malformation::LabelTooLong
                     })
                 }
-                values.push(&self.read_to_slice(position, length)?);
+                values.push(self.read_to_slice(position, length)?);
                 position += length;
                 if !has_jumped {
                     num_bytes_read_before_jump += length
@@ -284,16 +324,31 @@ impl UdpPacket {
         result.push(0);
         if result.len() > NAME_MAX_LENGTH_BYTES {
             return Err(UdpPacketError::MalformedDomainName { 
-                domain_name: String::from_utf8(result).expect("Failed to construct string from UTF-8."), 
+                domain_name: match String::from_utf8(result.to_vec()) {
+                    Ok(string) => string,
+                    Err(error) => return Err(UdpPacketError::FromUtf8 { 
+                        bytes: result, 
+                        source: error 
+                    })
+                },
                 description: format!("domain name length exceeds 255 bytes"), 
                 source: Malformation::NameTooLong
             })
         }
         match has_jumped {
-            true => self.position += 2 + num_bytes_read_before_jump,
+            true => self.position += num_bytes_read_before_jump + 2,
             false => self.position += result.len()
         };
         Ok(DomainName { bytes: result })
+    }
+
+    pub fn read_character_string(&mut self) -> Result<CharacterString> {
+        let length = self.buffer[self.position] as usize;
+        let bytes = self.read_to_slice(self.position, length + 1)?.to_vec();
+        Ok(CharacterString {
+            length,
+            bytes
+        })
     }
 }
 
@@ -339,7 +394,7 @@ mod tests {
         ];
         let slice = [65, 89, 1, 0, 0, 2, 0, 0, 0, 0, 0, 0];
         let mut udp_packet = UdpPacket::new();
-        udp_packet.write_from_slice(&slice, 0).expect("Failed to write to packet.");
+        udp_packet.write_from_slice(&slice, None).expect("Failed to write to packet.");
         assert_eq!(udp_packet, UdpPacket {
             buffer: buffer,
             position: 12
@@ -378,7 +433,7 @@ mod tests {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
         ];
-        udp_packet.write_from_slice(&slice, 0).expect("Failed to write to packet.");
+        udp_packet.write_from_slice(&slice, None).expect("Failed to write to packet.");
         assert_eq!(udp_packet, UdpPacket {
             buffer: buffer,
             position: 24
@@ -388,7 +443,7 @@ mod tests {
     #[test]
     fn write_string_test() {
         let mut udp_packet: UdpPacket = UdpPacket::new();
-        udp_packet.write_domain_name(&DomainName::from_str(dns_message::TEST_DOMAIN).expect("Failed to construct DomainName."), 0).expect("Failed to write to packet.");
+        udp_packet.write_domain_name(&DomainName::from_str(dns_message::TEST_DOMAIN).expect("Failed to construct DomainName."), None).expect("Failed to write to packet.");
         assert_eq!(udp_packet, UdpPacket {
             buffer: [
                 7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 0, 0,

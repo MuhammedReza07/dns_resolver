@@ -46,6 +46,7 @@ build_enum!(
     NS = 2,         // Name server domain name
     CNAME = 5,      // Canonical name of an alias
     SOA = 6,        // Name server zone information
+    HINFO = 13,     // Host information (CPU and OS) for name server
     MX = 15,        // The domain name of a MailExchange address
     AAAA = 28       // An Ipv6 address (u128)
 );
@@ -197,6 +198,17 @@ pub enum RecordData {
     CNAME {
         canonical_name: udp_packet::DomainName,
     },
+    HINFO {
+        cpu: udp_packet::CharacterString,
+        os: udp_packet::CharacterString,
+    },
+    MX {
+        preference: u16,
+        exchange_address: udp_packet::DomainName,
+    },
+    NS {
+        domain_name: udp_packet::DomainName,
+    },
     SOA {
         domain_name: udp_packet::DomainName,
         mailbox_address: udp_packet::DomainName,
@@ -205,13 +217,6 @@ pub enum RecordData {
         retry: u32,
         expire: u32,
         minimum: u32,
-    },
-    MX {
-        preference: u16,
-        exchange_address: udp_packet::DomainName,
-    },
-    NS {
-        domain_name: udp_packet::DomainName,
     },
     Unknown
 }
@@ -228,6 +233,10 @@ impl Display for RecordData {
             Self::CNAME {
                 canonical_name,
             } => canonical_name.fmt(f),
+            Self::HINFO { 
+                cpu, 
+                os 
+            } => write!(f, "{}\t{}", cpu, os),
             Self::MX {
                 preference,
                 exchange_address,
@@ -262,6 +271,15 @@ impl RecordData {
             Self::CNAME {
                 canonical_name,
             } => canonical_name.bytes.to_vec(),
+            Self::HINFO { 
+                cpu, 
+                os 
+            } => [
+                [cpu.length as u8].to_vec(), 
+                cpu.bytes.to_vec(), 
+                [os.length as u8].to_vec(), 
+                os.bytes.to_vec()
+                ].concat(),
             Self::MX {
                 preference,
                 exchange_address,
@@ -298,6 +316,10 @@ impl RecordData {
             RecordType::A => Ok(Self::A { ipv4_address: net::Ipv4Addr::from(udp_packet.read_u32()?) }),
             RecordType::AAAA => Ok(Self::AAAA { ipv6_address: net::Ipv6Addr::from(udp_packet.read_u128()?) }),
             RecordType::CNAME => Ok(Self::CNAME { canonical_name: udp_packet.read_domain_name()? }),
+            RecordType::HINFO => Ok(Self::HINFO { 
+                cpu: udp_packet.read_character_string()?, 
+                os: udp_packet.read_character_string()? 
+            }),
             RecordType::MX => Ok(Self::MX { 
                 preference: udp_packet.read_u16()?, 
                 exchange_address: udp_packet.read_domain_name()?
@@ -409,7 +431,7 @@ impl DnsHeader {
             u16_to_u8(self.authority_count),
             u16_to_u8(self.additional_count)
         ].concat();
-        udp_packet.write_from_slice(&slice, 0)?;
+        udp_packet.write_from_slice(&slice, None)?;
         Ok(())
     }
 
@@ -459,9 +481,9 @@ impl Default for DnsQuestion {
 
 impl DnsQuestion {
     fn write_to_udp_packet(&self, udp_packet: &mut udp_packet::UdpPacket) -> udp_packet::Result<()> {
-        udp_packet.write_domain_name(&self.name, 4)?;
-        udp_packet.write_from_slice(&u16_to_u8(self.question_type.try_into().unwrap()), 0)?; 
-        udp_packet.write_from_slice(&u16_to_u8(self.question_class.try_into().unwrap()), 0)?;
+        udp_packet.write_domain_name(&self.name, Some(4))?;
+        udp_packet.write_from_slice(&u16_to_u8(self.question_type.try_into().unwrap()), None)?; 
+        udp_packet.write_from_slice(&u16_to_u8(self.question_class.try_into().unwrap()), None)?;
         Ok(())
     }
 
@@ -486,20 +508,20 @@ pub struct DnsRecord {
 
 impl Display for DnsRecord {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}\t{}\t{}\t{}\t{}", self.name, self.record_class, self.record_type, self.ttl, self.data)
+        write!(f, "{}\t{}\t{}\t{}\t{}", self.name, self.ttl, self.record_class, self.record_type, self.data)
     }
 }
 
 impl DnsRecord {
     fn write_to_udp_packet(&self, udp_packet: &mut udp_packet::UdpPacket) -> udp_packet::Result<()> {
-        udp_packet.write_domain_name(&self.name, 10)?;
+        udp_packet.write_domain_name(&self.name, Some(10))?;
         udp_packet.write_from_slice(&[
             u16_to_u8(self.record_type.try_into().unwrap()).to_vec(), 
             u16_to_u8(self.record_class.try_into().unwrap()).to_vec(),
             u32_to_u8(self.ttl).to_vec(),
             u16_to_u8(self.length).to_vec(),
             self.data.as_bytes()
-        ].concat(), 0)?;
+        ].concat(), None)?;
         Ok(())
     }
 
