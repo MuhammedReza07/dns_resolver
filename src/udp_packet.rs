@@ -150,7 +150,7 @@ impl FromStr for DomainName {
     type Err = UdpPacketError;
 
     fn from_str(s: &str) -> result::Result<Self, Self::Err> {
-        let mut s = String::from(s);
+        let mut s = s.to_string();
         if s.ends_with(".") {
             s.pop();
         }

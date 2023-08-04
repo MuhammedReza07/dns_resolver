@@ -1,5 +1,6 @@
 use crate::build_enum;
 use crate::conversions::*;
+use crate::tabulation::Table;
 use crate::udp_packet;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
@@ -236,11 +237,11 @@ impl Display for RecordData {
             Self::HINFO { 
                 cpu, 
                 os 
-            } => write!(f, "{}\t{}", cpu, os),
+            } => write!(f, "{} {}", cpu, os),
             Self::MX {
                 preference,
                 exchange_address,
-            } => write!(f, "{}\t{}", preference, exchange_address),
+            } => write!(f, "{} {}", preference, exchange_address),
             Self::NS {
                 domain_name,
             } => domain_name.fmt(f),
@@ -252,7 +253,7 @@ impl Display for RecordData {
                 retry,
                 expire,
                 minimum,
-            } => write!(f, "{}\t{}\t{}\t{}\t{}\t{}\t{}", domain_name, mailbox_address, serial, refresh, retry, expire, minimum),
+            } => write!(f, "{} {} {} {} {} {} {}", domain_name, mailbox_address, serial, refresh, retry, expire, minimum),
             Self::Unknown => write!(f, "Unknown/unimplemented")
         }
     }
@@ -465,7 +466,7 @@ pub struct DnsQuestion {
 
 impl Display for DnsQuestion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}\t{}\t{}", self.name, self.question_class, self.question_type)
+        write!(f, "{} {} {}", self.name, self.question_class, self.question_type)
     }
 }
 
@@ -508,7 +509,7 @@ pub struct DnsRecord {
 
 impl Display for DnsRecord {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}\t{}\t{}\t{}\t{}", self.name, self.ttl, self.record_class, self.record_type, self.data)
+        write!(f, "{} {} {} {} {}", self.name, self.ttl, self.record_class, self.record_type, self.data)
     }
 }
 
@@ -559,38 +560,80 @@ impl Default for DnsMessage {
 
 impl Display for DnsMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "HEADER:")?;
+        let mut table = Table::new(None);
+
+        writeln!(f, "HEADER")?;
         write!(f, "{}", self.header)?;
 
-        writeln!(f)?;
-        writeln!(f, "QUESTIONS:")?;
+        // TODO: Modify the method of writing the header to accomodate the usage of table-printing.
+        // Until then, this section is dead.
+        //
+        // table.push(vec![Some(format!("HEADER")), None, None, None, None]);
+        // table.push(vec![Some(format!("{}", self.header)), None, None, None, None]);
+
+        table.push(vec![None; 5]);
+        table.push(vec![Some(format!("QUESTIONS")), None, None, None, None]);
         for question in self.questions.iter() {
-            writeln!(f, "{}", question.to_string())?;
+            table.push(
+                vec![
+                    Some(question.name.to_string()), 
+                    None, 
+                    Some(question.question_class.to_string()), 
+                    Some(question.question_type.to_string()), 
+                    None
+                ]
+            );
         }
 
         if self.answers.len() > 0 {
-            writeln!(f)?;
-            writeln!(f, "ANSWER SECTION:")?;
+            table.push(vec![None; 5]);
+            table.push(vec![Some(format!("ANSWER SECTION")), None, None, None, None]);
             for answer in self.answers.iter() {
-                writeln!(f, "{}", answer.to_string())?;
+                table.push(
+                    vec![
+                        Some(answer.name.to_string()), 
+                        Some(answer.ttl.to_string()), 
+                        Some(answer.record_class.to_string()), 
+                        Some(answer.record_type.to_string()), 
+                        Some(answer.data.to_string())
+                    ]
+                );
             }
         }
 
         if self.authorities.len() > 0 {
-            writeln!(f)?;
-            writeln!(f, "AUTHORITY SECTION:")?;
+            table.push(vec![None; 5]);
+            table.push(vec![Some(format!("AUTHORITY SECTION")), None, None, None, None]);
             for authority in self.authorities.iter() {
-                writeln!(f, "{}", authority.to_string())?;
+                table.push(
+                    vec![
+                        Some(authority.name.to_string()), 
+                        Some(authority.ttl.to_string()), 
+                        Some(authority.record_class.to_string()), 
+                        Some(authority.record_type.to_string()), 
+                        Some(authority.data.to_string())
+                    ]
+                );
             }
         }
 
         if self.additional.len() > 0 {
-            writeln!(f)?;
-            writeln!(f, "ADDITIONAL SECTION:")?;
+            table.push(vec![None; 5]);
+            table.push(vec![Some(format!("ADDITIONAL SECTION")), None, None, None, None]);
             for additional in self.additional.iter() {
-                writeln!(f, "{}", additional.to_string())?;
+                table.push(
+                    vec![
+                        Some(additional.name.to_string()), 
+                        Some(additional.ttl.to_string()), 
+                        Some(additional.record_class.to_string()), 
+                        Some(additional.record_type.to_string()), 
+                        Some(additional.data.to_string())
+                    ]
+                );
             }
         }
+
+        table.write(f)?;
 
         Ok(())
     }

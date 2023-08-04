@@ -7,6 +7,111 @@ pub mod conversions;
 /// read and write them from/to a UDP packet.
 pub mod dns_message;
 
+/// Utilities for formatting data in the form of a table, useful for various terminal
+/// applications.
+pub mod tabulation {
+    // TODO: Implement proper error handling for this module.
+    // TODO: Make Table generic such that data: Vec<Vec<Option<T>>>.
+    // TODO: Maybe add a trait for conversion into a table?
+    // TODO: Make construction more efficient and use fewer steps.
+    // TODO: Make it possible to indicate that a given member of Table.data should not be padded.
+    // TODO: Maybe implement the Display trait? (If even possible...)
+    // This is equivalent to displaying the table using a &self, instead of &mut self.
+
+    use std::collections::HashSet;
+
+    #[derive(Debug)]
+    pub struct Table {
+        num_columns: usize,
+        pub data: Vec<Vec<Option<String>>>
+    }
+
+    impl Table {
+        pub fn new(data: Option<Vec<Vec<Option<String>>>>) -> Self {
+            match data {
+                Some(data) => {
+                    let lengths: HashSet<usize> = data.iter().map(|vec| vec.len()).collect();
+                    if lengths.len() != 1 {
+                        panic!("Cannot generate a table with no rows (data.len() = 0) or rows of different lengths (data.len() != 1).");
+                    }
+                    Self { num_columns: data[0].len(), data }
+                },
+                None => Self { num_columns: 0, data: Vec::new() }
+            }
+        }
+
+        pub fn push(&mut self, value: Vec<Option<String>>) {
+            match self.num_columns {
+                0 => {
+                    self.num_columns = value.len();
+                    self.data.push(value);
+                },
+                _ => {
+                    if value.len() != self.num_columns {
+                        panic!("Cannot push value with value.len() != self.num_columns");
+                    }
+                    self.data.push(value);
+                }
+            }
+        }
+
+        pub fn get_column(&self, column: usize) -> Vec<&Option<String>> {
+            if column >= self.num_columns {
+                panic!("Attempted to access Vec out of bounds.");
+            }
+            self.data.iter().map(|row| match row.get(column) {
+                Some(value) => value,
+                None => &None
+            }).collect()
+        }
+
+        pub fn get_column_max_length(&self, column: usize) -> usize {
+            let column = self.get_column(column);
+            let mut max_length = 0;
+            for value in column {
+                match value {
+                    Some(value) => if value.len() > max_length {
+                        max_length = value.len();
+                    },
+                    _ => ()
+                }
+            }
+            max_length
+        }
+
+        pub fn insert_padding(&mut self) {
+            let mut max_lengths: Vec<usize> = Vec::new();
+            for column in 0..self.num_columns {
+                max_lengths.push(self.get_column_max_length(column));
+            }
+            for row in self.data.iter_mut() {
+                for (index, value) in row.iter_mut().enumerate() {
+                    match value {
+                        Some(string) => {
+                            for _ in 0..(max_lengths[index] - string.len()) {
+                                string.push(' ');
+                            }
+                        },
+                        None => {
+                            let string = vec![' '; max_lengths[index]].into_iter().collect();
+                            *value = Some(string);
+                        }
+                    }
+                }
+            }
+        }
+        
+        pub fn write(&mut self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            self.insert_padding();
+            for row in self.data.iter() {
+                let vec_str: Vec<&str> = row.iter().map(|option| option.as_deref().unwrap()).collect();
+                writeln!(f, "{}", vec_str.join("\t"))?;
+            }
+            Ok(())
+        }
+    }
+}
+
 /// Module containing utilities for handling a DNS-compatible UDP packet, i.e.
 /// a UDP packet of size 512 bytes. The module's functionality is specifically
 /// adapted to the DNS protocol and is therefore unsuitable for use in non-DNS
@@ -17,6 +122,8 @@ pub mod udp_packet;
 /// are primarily used to reduce repetitive boilerplate code and to facilitate code
 /// maintenance.
 pub mod macros { 
+// TODO: Replace () with some other type which can be converted into another error type.
+
 /// Error type for the build_enum! macro.
 #[derive(Debug)]
 pub enum BuildEnumError {
